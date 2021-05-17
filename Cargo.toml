@@ -10,3 +10,4 @@ clap = "2"
 zip = { git = "https://github.com/cessen/zip", branch = "raw_filename" }
 flate2 = "1"
 quick-xml = "0.22"
+regex = "1.5"

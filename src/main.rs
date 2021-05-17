@@ -1,4 +1,7 @@
+#![allow(dead_code)]
+
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -8,6 +11,7 @@ use flate2::read::{GzDecoder, GzEncoder};
 use quick_xml::{events::Event, Reader};
 
 mod jmdict;
+use jmdict::Morph;
 
 fn main() -> io::Result<()> {
     let matches = clap::App::new("Kobo Japanese Dictionary Merger")
@@ -43,13 +47,16 @@ fn main() -> io::Result<()> {
     let mut zip_out = zip::ZipWriter::new(BufWriter::new(File::create(output_filename)?));
 
     // Open and parse the JMDict file.
-    let mut jm_table: HashMap<String, jmdict::Morph> = HashMap::new();
+    let mut jm_table: HashMap<(String, String), Morph> = HashMap::new(); // (Kanji, Kana)
     if let Some(path) = matches.value_of("jmdict") {
         let parser = jmdict::Parser::from_reader(BufReader::new(File::open(path)?));
 
         for morph in parser {
-            if morph.writings.len() > 0 && !jm_table.contains_key(&morph.writings[0]) {
-                jm_table.insert(morph.writings[0].clone(), morph);
+            let reading = hiragana_to_katakana(&morph.readings[0]);
+            if morph.writings.len() > 0
+                && !jm_table.contains_key(&(morph.writings[0].clone(), reading.clone()))
+            {
+                jm_table.insert((morph.writings[0].clone(), reading), morph);
             }
         }
     }
@@ -108,28 +115,78 @@ fn main() -> io::Result<()> {
     return Ok(());
 }
 
-/// The meat of the thing, used below to add additional
-/// definitions to a word's entry.
-fn generate_definition(word: &str, jm_table: &HashMap<String, jmdict::Morph>) -> String {
-    let mut text = String::new();
+/// Get the entries about the dictionary entry from
+/// our other loaded dictionaries.
+fn find_entry<'a>(
+    word: &str,
+    kana: &str,
+    writings: &[String],
+    jm_table: &'a HashMap<(String, String), Morph>,
+) -> (Option<&'a Morph>, String, Option<u32>) // Morph, Kana, Pitch Accent
+{
+    let mut morph = None;
+    let mut pitch_accent = None;
 
-    if jm_table.contains_key(word) && !jm_table[word].definitions.is_empty() {
-        if jm_table[word].definitions.len() == 1 {
-            text.push_str(&format!("{}<br/>", jm_table[word].definitions[0]));
-        } else {
-            for (i, def) in jm_table[word].definitions.iter().enumerate() {
-                text.push_str(&format!("<b>{}.</b> {}<br/>", i + 1, def));
+    for w in writings {
+        if let Some(m) = jm_table.get(&(w.clone(), kana.into())) {
+            if !m.definitions.is_empty() {
+                morph = Some(m);
+                break;
             }
         }
     }
 
+    // pitch_accent = Some(kana.chars().count() as u32);
+
+    (morph, kana.into(), pitch_accent)
+}
+
+/// Generate header text from the given entry information.
+fn generate_header_text(kana: &str, pitch_accent: Option<u32>, writings: &[String]) -> String {
+    let mut text = format!("{} ", hiragana_to_katakana(&kana),);
+
+    if let Some(p) = pitch_accent {
+        text.push_str(&format!("[{}]", p));
+    }
+
+    text.push_str(" &nbsp;&nbsp;&mdash; 【");
+
+    let mut first = true;
+    for w in writings.iter() {
+        if !first {
+            text.push_str("／");
+        }
+        text.push_str(w);
+        first = false;
+    }
+    text.push_str("】");
+
     text
 }
 
-fn process_entries(inn: &str, out: &mut String, jm_table: &HashMap<String, jmdict::Morph>) {
+/// Generate English definition text from the given morph.
+fn generate_definition_text(morph: &Morph) -> String {
+    let mut text = String::new();
+
+    text.push_str("<p style=\"margin-top: 0.6em; margin-bottom: 0.6em;\">");
+    for (i, def) in morph.definitions.iter().enumerate() {
+        text.push_str(&format!("<b>{}.</b> {}<br/>", i + 1, def));
+    }
+    text.push_str("</p>");
+
+    text
+}
+
+fn process_entries(
+    inn: &str,
+    out: &mut String,
+    jm_table: &HashMap<(String, String), jmdict::Morph>,
+) {
     let mut parser = Reader::from_str(inn);
 
     let mut state = PS::None;
+
+    let re_writings = regex::Regex::new(r"【([^】]*)】").unwrap();
 
     let mut buf = Vec::new();
     while let Ok(event) = parser.read_event(&mut buf) {
@@ -139,20 +196,48 @@ fn process_entries(inn: &str, out: &mut String, jm_table: &HashMap<String, jmdic
             }
 
             Event::Start(e) => {
-                // Fill in our own definition if it's time.
-                if let PS::Word(ref word) = state {
-                    // Check if it's the place where we should add
-                    // in our own content.
-                    if e.name() == b"p" {
-                        // Put our own definition bits here.
-                        out.push_str("<p style=\"margin-top: 0.6em; margin-bottom: 0.6em;\">");
-                        out.push_str(&generate_definition(word, jm_table));
-                        out.push_str("</p>");
-                    }
-                }
+                if let PS::Word(word) = state.clone() {
+                    if e.name() == b"b" {
+                        // Get the kana pronunciation.
+                        let kana = if let Ok(Event::Text(e)) = parser.read_event(&mut buf) {
+                            strip_non_kana(bytes_to_str(&e))
+                        } else {
+                            "".into()
+                        };
+                        let _ = parser.read_event(&mut buf); // Skip "</b>".
 
-                // Copy to the output.
-                out.push_str(&format!("<{}>", bytes_to_str(&e)));
+                        // Get the (probably kanji) writings.
+                        let mut writings = Vec::new();
+                        if let Ok(Event::Text(e)) = parser.read_event(&mut buf) {
+                            let text = bytes_to_str(&e);
+                            if let Some(cap) = re_writings.captures_iter(text).next() {
+                                let tmp: Vec<_> = cap[1].split("／").map(|s| s.into()).collect();
+                                writings.extend_from_slice(&tmp);
+                            }
+                        }
+                        if !writings.contains(&word) {
+                            writings.push(word.clone());
+                        }
+
+                        // Actually generate the new entry text.
+                        out.push_str("<hr/>");
+                        let (morph, kana, pitch_accent) =
+                            find_entry(&word, &hiragana_to_katakana(&kana), &writings, jm_table);
+                        out.push_str(&generate_header_text(&kana, pitch_accent, &writings));
+                        if let Some(ref m) = morph {
+                            out.push_str(&generate_definition_text(m));
+                        }
+
+                        // Change states.
+                        state = PS::None;
+                    } else {
+                        // Copy to the output.
+                        out.push_str(&format!("<{}>", bytes_to_str(&e)));
+                    }
+                } else {
+                    // Copy to the output.
+                    out.push_str(&format!("<{}>", bytes_to_str(&e)));
+                }
             }
 
             Event::Empty(e) => {
@@ -174,7 +259,7 @@ fn process_entries(inn: &str, out: &mut String, jm_table: &HashMap<String, jmdic
             Event::End(e) => {
                 // Check if it's a state change.
                 if e.name() == b"w" {
-                    out.push_str("<hr/><br/>");
+                    out.push_str("<br/>");
                     state = PS::None;
                 }
 
@@ -183,8 +268,10 @@ fn process_entries(inn: &str, out: &mut String, jm_table: &HashMap<String, jmdic
             }
 
             Event::Text(e) => {
+                let text = bytes_to_str(&e);
+
                 // Copy to the output.
-                out.push_str(bytes_to_str(&e));
+                out.push_str(text);
             }
 
             Event::Comment(e) => {
@@ -230,4 +317,54 @@ fn bytes_to_string(bytes: &[u8]) -> String {
 /// Panics if the bytes aren't utf8.
 fn bytes_to_str(bytes: &[u8]) -> &str {
     std::str::from_utf8(bytes).unwrap()
+}
+
+/// Numerical difference between hiragana and katakana in scalar values.
+/// Hirgana is lower than katakana.
+const KANA_DIFF: u32 = 0x30a0 - 0x3040;
+
+/// Removes all non-kana text from a `&str`, and returns
+/// a `String` of the result.
+fn strip_non_kana(text: &str) -> String {
+    let mut new_text = String::new();
+    for ch in text.chars() {
+        if (ch as u32 >= 0x3040 && ch as u32 <= 0x309f)
+            || (ch as u32 >= 0x30a0 && ch as u32 <= 0x30ff)
+        {
+            new_text.push(ch);
+        }
+    }
+    new_text
+}
+
+fn hiragana_to_katakana(text: &str) -> String {
+    let mut new_text = String::new();
+    for ch in text.chars() {
+        new_text.push(if ch as u32 >= 0x3040 && ch as u32 <= 0x309f {
+            char::try_from(ch as u32 + KANA_DIFF).unwrap_or(ch)
+        } else {
+            ch
+        });
+    }
+    new_text
+}
+
+fn katakana_to_hiragana(text: &str) -> String {
+    let mut new_text = String::new();
+    for ch in text.chars() {
+        new_text.push(if ch as u32 >= 0x30a0 && ch as u32 <= 0x30ff {
+            char::try_from(ch as u32 - KANA_DIFF).unwrap_or(ch)
+        } else {
+            ch
+        });
+    }
+    new_text
+}
+
+fn is_all_kana(text: &str) -> bool {
+    let mut all_kana = true;
+    for ch in text.chars() {
+        all_kana |= ch as u32 >= 0x3040 && ch as u32 <= 0x30ff;
+    }
+    all_kana
 }
