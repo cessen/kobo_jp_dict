@@ -109,12 +109,11 @@ fn main() -> io::Result<()> {
 }
 
 /// The meat of the thing, used below to add additional
-/// definition text to a word's entry.
-fn generate_entry_new_text(word: &str, jm_table: &HashMap<String, jmdict::Morph>) -> String {
+/// definitions to a word's entry.
+fn generate_definition(word: &str, jm_table: &HashMap<String, jmdict::Morph>) -> String {
     let mut text = String::new();
 
     if jm_table.contains_key(word) && !jm_table[word].definitions.is_empty() {
-        text.push_str("<br/>");
         if jm_table[word].definitions.len() == 1 {
             text.push_str(&format!("{}<br/>", jm_table[word].definitions[0]));
         } else {
@@ -122,7 +121,6 @@ fn generate_entry_new_text(word: &str, jm_table: &HashMap<String, jmdict::Morph>
                 text.push_str(&format!("<b>{}.</b> {}<br/>", i + 1, def));
             }
         }
-        text.push_str("<br/>");
     }
 
     text
@@ -141,26 +139,20 @@ fn process_entries(inn: &str, out: &mut String, jm_table: &HashMap<String, jmdic
             }
 
             Event::Start(e) => {
-                // Copy to the output.
-                out.push_str(&format!("<{}>", bytes_to_str(&e)));
-
-                // Check if it's a state change.
+                // Fill in our own definition if it's time.
                 if let PS::Word(ref word) = state {
                     // Check if it's the place where we should add
                     // in our own content.
                     if e.name() == b"p" {
                         // Put our own definition bits here.
-                        out.push_str(&generate_entry_new_text(word, jm_table));
+                        out.push_str("<p style=\"margin-top: 0.6em; margin-bottom: 0.6em;\">");
+                        out.push_str(&generate_definition(word, jm_table));
+                        out.push_str("</p>");
                     }
                 }
-                if e.name() == b"a"
-                    && e.attributes().count() > 0
-                    && e.attributes().nth(0).unwrap().unwrap().key == b"name"
-                {
-                    state = PS::Word(bytes_to_string(
-                        &e.attributes().nth(0).unwrap().unwrap().value,
-                    ));
-                }
+
+                // Copy to the output.
+                out.push_str(&format!("<{}>", bytes_to_str(&e)));
             }
 
             Event::Empty(e) => {
@@ -182,7 +174,7 @@ fn process_entries(inn: &str, out: &mut String, jm_table: &HashMap<String, jmdic
             Event::End(e) => {
                 // Check if it's a state change.
                 if e.name() == b"w" {
-                    out.push_str("<hr/>");
+                    out.push_str("<hr/><br/>");
                     state = PS::None;
                 }
 
