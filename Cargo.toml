@@ -1,0 +1,12 @@
+[package]
+name = "kobo_dict"
+version = "0.1.0"
+authors = ["Nathan Vegdahl <cessen@cessen.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+zip = { git = "https://github.com/cessen/zip", branch = "raw_filename" }
+flate2 = "1"
+clap = "2"
