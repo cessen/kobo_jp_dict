@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -5,6 +6,8 @@ use std::io::{BufReader, BufWriter};
 
 use flate2::read::{GzDecoder, GzEncoder};
 use quick_xml::{events::Event, Reader};
+
+mod jmdict;
 
 fn main() -> io::Result<()> {
     let matches = clap::App::new("Kobo Japanese Dictionary Merger")
@@ -21,6 +24,14 @@ fn main() -> io::Result<()> {
                 .required(true)
                 .index(2),
         )
+        .arg(
+            clap::Arg::with_name("jmdict")
+                .short("j")
+                .long("jmdict")
+                .help("Path to the JMDict file if available")
+                .value_name("PATH")
+                .takes_value(true),
+        )
         .get_matches();
 
     // Open the input zip archive.
@@ -30,6 +41,20 @@ fn main() -> io::Result<()> {
     // Open the output zip archive.
     let output_filename = matches.value_of("OUTPUT").unwrap();
     let mut zip_out = zip::ZipWriter::new(BufWriter::new(File::create(output_filename)?));
+
+    // Open and parse the JMDict file.
+    let mut jm_table: HashMap<String, jmdict::Morph> = HashMap::new();
+    if let Some(path) = matches.value_of("jmdict") {
+        let parser = jmdict::Parser::from_reader(BufReader::new(File::open(path)?));
+
+        for morph in parser {
+            if morph.writings.len() > 0 && !jm_table.contains_key(&morph.writings[0]) {
+                jm_table.insert(morph.writings[0].clone(), morph);
+            }
+        }
+    }
+
+    println!("JMDict entries: {}", jm_table.len());
 
     // Loop through all files in the zip file, processing each
     // one appropriately before writing it to the output zip
@@ -53,7 +78,7 @@ fn main() -> io::Result<()> {
 
             // Process the html as desired.
             html_processed.clear();
-            process_entries(&html, &mut html_processed);
+            process_entries(&html, &mut html_processed, &jm_table);
 
             // Recompress html data.
             let mut gz = GzEncoder::new(html_processed.as_bytes(), flate2::Compression::fast());
@@ -85,11 +110,25 @@ fn main() -> io::Result<()> {
 
 /// The meat of the thing, used below to add additional
 /// definition text to a word's entry.
-fn generate_entry_new_text(word: &str) -> String {
-    format!("YARBLE!  This is test 2.  {}  BLAH BLAH!<br/>", word)
+fn generate_entry_new_text(word: &str, jm_table: &HashMap<String, jmdict::Morph>) -> String {
+    let mut text = String::new();
+
+    if jm_table.contains_key(word) && !jm_table[word].definitions.is_empty() {
+        text.push_str("<br/>");
+        if jm_table[word].definitions.len() == 1 {
+            text.push_str(&format!("{}<br/>", jm_table[word].definitions[0]));
+        } else {
+            for (i, def) in jm_table[word].definitions.iter().enumerate() {
+                text.push_str(&format!("<b>{}.</b> {}<br/>", i + 1, def));
+            }
+        }
+        text.push_str("<br/>");
+    }
+
+    text
 }
 
-fn process_entries(inn: &str, out: &mut String) {
+fn process_entries(inn: &str, out: &mut String, jm_table: &HashMap<String, jmdict::Morph>) {
     let mut parser = Reader::from_str(inn);
 
     let mut state = PS::None;
@@ -111,7 +150,7 @@ fn process_entries(inn: &str, out: &mut String) {
                     // in our own content.
                     if e.name() == b"p" {
                         // Put our own definition bits here.
-                        out.push_str(&generate_entry_new_text(word));
+                        out.push_str(&generate_entry_new_text(word, jm_table));
                     }
                 }
                 if e.name() == b"a"
@@ -141,13 +180,14 @@ fn process_entries(inn: &str, out: &mut String) {
             }
 
             Event::End(e) => {
-                // Copy to the output.
-                out.push_str(&format!("</{}>", bytes_to_str(&e)));
-
                 // Check if it's a state change.
                 if e.name() == b"w" {
+                    out.push_str("<hr/>");
                     state = PS::None;
                 }
+
+                // Copy to the output.
+                out.push_str(&format!("</{}>", bytes_to_str(&e)));
             }
 
             Event::Text(e) => {
