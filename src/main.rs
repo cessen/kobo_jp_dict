@@ -1,3 +1,4 @@
+use flate2::read::{GzDecoder, GzEncoder};
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -32,6 +33,8 @@ fn main() -> io::Result<()> {
     // one appropriately before writing it to the output zip
     // file.
     let mut data = Vec::new();
+    let mut html = String::new();
+    let mut gzhtml = Vec::new();
     for i in 0..zip_in.len() {
         print!("\r{}/{}", i + 1, zip_in.len());
         let mut f = zip_in.by_index(i).unwrap();
@@ -42,10 +45,21 @@ fn main() -> io::Result<()> {
 
         // HTML files
         if name_raw.len() >= 5 && &name_raw[(name_raw.len() - 5)..] == &b".html"[..] {
+            // Decompress html data.
+            let mut ungz = GzDecoder::new(&data[..]);
+            html.clear();
+            ungz.read_to_string(&mut html).unwrap();
+
+            // Recompress html data.
+            let mut gz = GzEncoder::new(html.as_bytes(), flate2::Compression::fast());
+            gzhtml.clear();
+            gz.read_to_end(&mut gzhtml).unwrap();
+
+            // Write out re-compressed html file.
             zip_out
                 .start_file_raw_name(name_raw, zip::write::FileOptions::default())
                 .unwrap();
-            zip_out.write_all(&data).unwrap();
+            zip_out.write_all(&gzhtml).unwrap();
         }
         // Everything else
         else {
