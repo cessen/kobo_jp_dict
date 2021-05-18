@@ -233,7 +233,7 @@ fn process_entries(
                     if e.name() == b"b" {
                         // Get the kana pronunciation.
                         let kana = if let Ok(Event::Text(e)) = parser.read_event(&mut buf) {
-                            strip_non_kana(bytes_to_str(&e))
+                            strip_non_kana(&hiragana_to_katakana(bytes_to_str(&e)))
                         } else {
                             "".into()
                         };
@@ -359,16 +359,25 @@ fn bytes_to_str(bytes: &[u8]) -> &str {
 
 /// Numerical difference between hiragana and katakana in scalar values.
 /// Hirgana is lower than katakana.
-const KANA_DIFF: u32 = 0x30a0 - 0x3040;
+const KANA_DIFF: u32 = 0x30a1 - 0x3041;
+
+fn is_kana(ch: char) -> bool {
+    let c = ch as u32;
+
+    (c >= 0x3041 && c <= 0x3096) // Hiragana.
+    || (c >= 0x3099 && c <= 0x309c) // Combining marks.
+    || (c >= 0x309d && c <= 0x309e) // Iterating marks.
+    || (c >= 0x30a1 && c <= 0x30f6) // Katakana.
+    || c == 0x30fc // Prolonged sound mark.
+    || (c >= 0x30fd && c <= 0x30fe) // Iterating marks.
+}
 
 /// Removes all non-kana text from a `&str`, and returns
 /// a `String` of the result.
 fn strip_non_kana(text: &str) -> String {
     let mut new_text = String::new();
     for ch in text.chars() {
-        if (ch as u32 >= 0x3040 && ch as u32 <= 0x309f)
-            || (ch as u32 >= 0x30a0 && ch as u32 <= 0x30ff)
-        {
+        if is_kana(ch) {
             new_text.push(ch);
         }
     }
@@ -378,11 +387,14 @@ fn strip_non_kana(text: &str) -> String {
 fn hiragana_to_katakana(text: &str) -> String {
     let mut new_text = String::new();
     for ch in text.chars() {
-        new_text.push(if ch as u32 >= 0x3040 && ch as u32 <= 0x309f {
-            char::try_from(ch as u32 + KANA_DIFF).unwrap_or(ch)
-        } else {
-            ch
-        });
+        let c = ch as u32;
+        new_text.push(
+            if (c >= 0x3041 && c <= 0x3096) || (c >= 0x309d && c <= 0x309e) {
+                char::try_from(c + KANA_DIFF).unwrap_or(ch)
+            } else {
+                ch
+            },
+        );
     }
     new_text
 }
@@ -390,11 +402,14 @@ fn hiragana_to_katakana(text: &str) -> String {
 fn katakana_to_hiragana(text: &str) -> String {
     let mut new_text = String::new();
     for ch in text.chars() {
-        new_text.push(if ch as u32 >= 0x30a0 && ch as u32 <= 0x30ff {
-            char::try_from(ch as u32 - KANA_DIFF).unwrap_or(ch)
-        } else {
-            ch
-        });
+        let c = ch as u32;
+        new_text.push(
+            if (c >= 0x30a1 && c <= 0x30f6) || (c >= 0x30fd && c <= 0x30fe) {
+                char::try_from(c - KANA_DIFF).unwrap_or(ch)
+            } else {
+                ch
+            },
+        );
     }
     new_text
 }
@@ -402,7 +417,7 @@ fn katakana_to_hiragana(text: &str) -> String {
 fn is_all_kana(text: &str) -> bool {
     let mut all_kana = true;
     for ch in text.chars() {
-        all_kana |= ch as u32 >= 0x3040 && ch as u32 <= 0x30ff;
+        all_kana |= is_kana(ch);
     }
     all_kana
 }
