@@ -36,6 +36,14 @@ fn main() -> io::Result<()> {
                 .value_name("PATH")
                 .takes_value(true),
         )
+        .arg(
+            clap::Arg::with_name("pitch_accent")
+                .short("p")
+                .long("pitch_accent")
+                .help("Path to the pitch accent file if available")
+                .value_name("PATH")
+                .takes_value(true),
+        )
         .get_matches();
 
     // Open the input zip archive.
@@ -60,8 +68,24 @@ fn main() -> io::Result<()> {
             }
         }
     }
-
     println!("JMDict entries: {}", jm_table.len());
+
+    // Open and parse the pitch accent file.
+    let mut pa_table: HashMap<(String, String), u32> = HashMap::new(); // (Kanji, Kana), Pitch Accent
+    if let Some(path) = matches.value_of("pitch_accent") {
+        let reader = BufReader::new(File::open(path)?);
+        for line in reader.lines() {
+            let line = line.unwrap_or_else(|_| "".into());
+            if line.chars().nth(0).unwrap_or('\n').is_digit(10) {
+                let parts: Vec<_> = line.split("\t").collect();
+                assert_eq!(parts.len(), 7);
+                if let Ok(accent) = parts[5].parse::<u32>() {
+                    pa_table.insert((parts[1].into(), hiragana_to_katakana(parts[2])), accent);
+                }
+            }
+        }
+    }
+    println!("JA Accent entries: {}", pa_table.len());
 
     // Loop through all files in the zip file, processing each
     // one appropriately before writing it to the output zip
@@ -85,7 +109,7 @@ fn main() -> io::Result<()> {
 
             // Process the html as desired.
             html_processed.clear();
-            process_entries(&html, &mut html_processed, &jm_table);
+            process_entries(&html, &mut html_processed, &jm_table, &pa_table);
 
             // Recompress html data.
             let mut gz = GzEncoder::new(html_processed.as_bytes(), flate2::Compression::fast());
@@ -118,15 +142,17 @@ fn main() -> io::Result<()> {
 /// Get the entries about the dictionary entry from
 /// our other loaded dictionaries.
 fn find_entry<'a>(
-    word: &str,
+    _word: &str,
     kana: &str,
     writings: &[String],
     jm_table: &'a HashMap<(String, String), Morph>,
+    pa_table: &HashMap<(String, String), u32>,
 ) -> (Option<&'a Morph>, String, Option<u32>) // Morph, Kana, Pitch Accent
 {
     let mut morph = None;
     let mut pitch_accent = None;
 
+    // Definition.
     for w in writings {
         if let Some(m) = jm_table.get(&(w.clone(), kana.into())) {
             if !m.definitions.is_empty() {
@@ -136,7 +162,13 @@ fn find_entry<'a>(
         }
     }
 
-    // pitch_accent = Some(kana.chars().count() as u32);
+    // Pitch accent.
+    for w in writings {
+        if let Some(pa) = pa_table.get(&(w.clone(), kana.into())) {
+            pitch_accent = Some(*pa);
+            break;
+        }
+    }
 
     (morph, kana.into(), pitch_accent)
 }
@@ -181,6 +213,7 @@ fn process_entries(
     inn: &str,
     out: &mut String,
     jm_table: &HashMap<(String, String), jmdict::Morph>,
+    pa_table: &HashMap<(String, String), u32>,
 ) {
     let mut parser = Reader::from_str(inn);
 
@@ -221,8 +254,13 @@ fn process_entries(
 
                         // Actually generate the new entry text.
                         out.push_str("<hr/>");
-                        let (morph, kana, pitch_accent) =
-                            find_entry(&word, &hiragana_to_katakana(&kana), &writings, jm_table);
+                        let (morph, kana, pitch_accent) = find_entry(
+                            &word,
+                            &hiragana_to_katakana(&kana),
+                            &writings,
+                            jm_table,
+                            pa_table,
+                        );
                         out.push_str(&generate_header_text(&kana, pitch_accent, &writings));
                         if let Some(ref m) = morph {
                             out.push_str(&generate_definition_text(m));
