@@ -11,3 +11,5 @@ zip = { git = "https://github.com/cessen/zip", branch = "raw_filename" }
 flate2 = "1"
 quick-xml = "0.22"
 regex = "1.5"
+tempfile = "3"
+unicode_categories = "0.1"

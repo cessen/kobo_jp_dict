@@ -11,6 +11,9 @@ use flate2::read::{GzDecoder, GzEncoder};
 use quick_xml::{events::Event, Reader};
 
 mod jmdict;
+mod kobo;
+mod kobo_ja;
+
 use jmdict::Morph;
 
 fn main() -> io::Result<()> {
