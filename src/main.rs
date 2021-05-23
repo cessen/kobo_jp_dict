@@ -223,8 +223,12 @@ fn generate_lookup_keys(morph: &Morph) -> Vec<String> {
         }
     };
 
+    let mut forms: Vec<_> = morph.writings.iter().chain(morph.readings.iter()).collect();
+    forms.sort();
+    forms.dedup();
+
     use ConjugationClass::*;
-    for word in morph.writings.iter().chain(morph.readings.iter()) {
+    for word in forms.iter() {
         match morph.conj {
             IchidanVerb => {
                 end_replace_push(word, "る", &["", "られ", "させ", "ろ", "て", "た"]);
