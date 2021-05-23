@@ -11,7 +11,7 @@ mod jmdict;
 mod kobo;
 mod kobo_ja;
 
-use jmdict::Morph;
+use jmdict::{ConjugationClass, Morph, PartOfSpeech};
 
 fn main() -> io::Result<()> {
     let matches = clap::App::new("Kobo Japanese Dictionary Builder")
@@ -110,14 +110,10 @@ fn main() -> io::Result<()> {
         for morph in item.iter() {
             let mut definition: String = "<hr/>".into();
 
-            let mut writings = morph.writings.clone();
-            if morph.usually_kana {
-                writings.insert(0, morph.readings[0].clone());
-            }
             definition.push_str(&generate_header_text(
                 &kana,
                 pa_table.get(&(kanji.clone(), kana.clone())).map(|pa| *pa),
-                &writings,
+                &morph,
             ));
             definition.push_str(&generate_definition_text(&morph));
 
@@ -127,6 +123,7 @@ fn main() -> io::Result<()> {
             });
         }
     }
+    entries.sort_by_key(|a| a.keys[0].len());
 
     //----------------------------------------------------------------
     // Write the new dictionary file.
@@ -137,7 +134,7 @@ fn main() -> io::Result<()> {
 }
 
 /// Generate header text from the given entry information.
-fn generate_header_text(kana: &str, pitch_accent: Option<u32>, writings: &[String]) -> String {
+fn generate_header_text(kana: &str, pitch_accent: Option<u32>, morph: &Morph) -> String {
     let mut text = format!("{} ", hiragana_to_katakana(&kana),);
 
     if let Some(p) = pitch_accent {
@@ -145,16 +142,51 @@ fn generate_header_text(kana: &str, pitch_accent: Option<u32>, writings: &[Strin
     }
 
     text.push_str(" &nbsp;&nbsp;&mdash; 【");
-
     let mut first = true;
-    for w in writings.iter() {
+    if morph.usually_kana || morph.writings.is_empty() {
+        text.push_str(&morph.readings[0]);
+        first = false;
+    }
+    for w in morph.writings.iter() {
         if !first {
             text.push_str("／");
         }
-        text.push_str(w);
+        text.push_str(&w);
         first = false;
     }
     text.push_str("】");
+
+    const WORD_TYPE_START: &'static str =
+        "<span style=\"font-size: 0.8em; font-style: italic; margin-left: 1.5em;\">";
+    const WORD_TYPE_END: &'static str = "</span>";
+    match morph.pos {
+        PartOfSpeech::Verb => {
+            if morph.conj == ConjugationClass::IchidanVerb {
+                text.push_str(&format!(
+                    "{}{}{}",
+                    WORD_TYPE_START, "verb, ichidan", WORD_TYPE_END
+                ));
+            } else {
+                text.push_str(&format!("{}{}{}", WORD_TYPE_START, "verb", WORD_TYPE_END));
+            }
+        }
+
+        PartOfSpeech::Adjective => {
+            text.push_str(&format!(
+                "{}{}{}",
+                WORD_TYPE_START, "i-adjective", WORD_TYPE_END
+            ));
+        }
+
+        PartOfSpeech::Expression => {
+            text.push_str(&format!(
+                "{}{}{}",
+                WORD_TYPE_START, "expression", WORD_TYPE_END
+            ));
+        }
+
+        _ => {}
+    }
 
     text
 }
@@ -174,8 +206,6 @@ fn generate_definition_text(morph: &Morph) -> String {
 
 /// Generates the look-up keys for a morph, including basic conjugations.
 fn generate_lookup_keys(morph: &Morph) -> Vec<String> {
-    use jmdict::ConjugationClass::*;
-
     let mut keys = Vec::new();
 
     let mut end_replace_push = |word: &str, trail: &str, endings: &[&str]| {
@@ -193,10 +223,11 @@ fn generate_lookup_keys(morph: &Morph) -> Vec<String> {
         }
     };
 
+    use ConjugationClass::*;
     for word in morph.writings.iter().chain(morph.readings.iter()) {
         match morph.conj {
             IchidanVerb => {
-                end_replace_push(word, "る", &[""]);
+                end_replace_push(word, "る", &["", "られ", "させ", "ろ", "て", "た"]);
             }
 
             GodanVerbU => {
@@ -304,6 +335,7 @@ fn generate_lookup_keys(morph: &Morph) -> Vec<String> {
         };
     }
 
+    keys.sort();
     keys
 }
 
