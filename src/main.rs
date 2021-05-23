@@ -174,12 +174,137 @@ fn generate_definition_text(morph: &Morph) -> String {
 
 /// Generates the look-up keys for a morph, including basic conjugations.
 fn generate_lookup_keys(morph: &Morph) -> Vec<String> {
-    morph
-        .writings
-        .iter()
-        .chain(morph.readings.iter())
-        .map(|s| (*s).clone())
-        .collect()
+    use jmdict::ConjugationClass::*;
+
+    let mut keys = Vec::new();
+
+    let mut end_replace_push = |word: &str, trail: &str, endings: &[&str]| {
+        keys.push(word.into());
+        if trail.len() > 0 && word.len() >= trail.len() && word.ends_with(trail) {
+            let stem = {
+                let mut stem: String = word.into();
+                stem.truncate(word.len() - trail.len());
+                stem
+            };
+
+            for end in endings.iter() {
+                keys.push(format!("{}{}", stem, end));
+            }
+        }
+    };
+
+    for word in morph.writings.iter().chain(morph.readings.iter()) {
+        match morph.conj {
+            IchidanVerb => {
+                end_replace_push(word, "る", &[""]);
+            }
+
+            GodanVerbU => {
+                end_replace_push(word, "う", &["わ", "い", "え", "お", "って", "った"]);
+            }
+
+            GodanVerbTsu => {
+                end_replace_push(word, "つ", &["た", "ち", "て", "と", "って", "った"]);
+            }
+
+            GodanVerbRu => {
+                end_replace_push(word, "ち", &["ら", "り", "れ", "ろ", "って", "った"]);
+            }
+
+            GodanVerbKu => {
+                end_replace_push(word, "く", &["か", "き", "け", "こ", "いて", "いた"]);
+            }
+
+            GodanVerbGu => {
+                end_replace_push(word, "ぐ", &["が", "ぎ", "げ", "ご", "いで", "いだ"]);
+            }
+
+            GodanVerbNu => {
+                end_replace_push(word, "ぬ", &["な", "に", "ね", "の", "んで", "んだ"]);
+            }
+
+            GodanVerbBu => {
+                end_replace_push(word, "ぶ", &["ば", "び", "べ", "ぼ", "んで", "んだ"]);
+            }
+
+            GodanVerbMu => {
+                end_replace_push(word, "む", &["ま", "み", "め", "も", "んで", "んだ"]);
+            }
+
+            GodanVerbSu => {
+                end_replace_push(word, "す", &["さ", "し", "せ", "そ", "して", "した"]);
+            }
+
+            IkuVerb => {
+                end_replace_push(word, "く", &["か", "き", "け", "こ", "って", "った"]);
+            }
+
+            KuruVerb => {
+                end_replace_push(
+                    word,
+                    "くる",
+                    &[
+                        "こない",
+                        "こなかった",
+                        "こなくて",
+                        "きて",
+                        "きた",
+                        "こられ",
+                        "こさせ",
+                        "こい",
+                        "きます",
+                        "きません",
+                        "きました",
+                    ],
+                );
+                end_replace_push(
+                    word,
+                    "来る",
+                    &[
+                        "来ない",
+                        "来なかった",
+                        "来なくて",
+                        "来て",
+                        "来た",
+                        "来られ",
+                        "来させ",
+                        "来い",
+                        "来ます",
+                        "来ません",
+                        "来ました",
+                    ],
+                );
+            }
+
+            SuruVerb => {
+                end_replace_push(
+                    word,
+                    "する",
+                    &[
+                        "しな",
+                        "しろ",
+                        "させ",
+                        "され",
+                        "でき",
+                        "した",
+                        "して",
+                        "します",
+                        "しません",
+                    ],
+                );
+            }
+
+            IAdjective => {
+                end_replace_push(word, "い", &["く", "け", "かった", "かって"]);
+            }
+
+            _ => {
+                end_replace_push(word, "", &[]);
+            }
+        };
+    }
+
+    keys
 }
 
 /// Panics if the bytes aren't utf8.
