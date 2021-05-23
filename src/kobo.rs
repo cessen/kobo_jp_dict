@@ -12,7 +12,7 @@ pub struct Entry {
     pub definition: String,
 }
 
-pub fn write_dict(entries: &[Entry], output_path: &Path) -> std::io::Result<()> {
+pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Result<()> {
     // Sorted, de-duplicated list of keys.
     let all_keys = {
         let mut all_keys = Vec::new();
@@ -108,7 +108,7 @@ pub fn write_dict(entries: &[Entry], output_path: &Path) -> std::io::Result<()> 
         html.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?><html>");
         for (key, definition) in prefix_entry_list.iter() {
             html.push_str(&format!(
-                "<w><p><a href=\"{}\" />{}</p></w>",
+                "<w><p><a name=\"{}\" />{}</p></w>",
                 key, definition
             ));
         }
@@ -128,6 +128,8 @@ pub fn write_dict(entries: &[Entry], output_path: &Path) -> std::io::Result<()> 
             .unwrap();
         zip_out.write_all(&gzhtml).unwrap();
     }
+
+    zip_out.finish().unwrap();
 
     Ok(())
 }

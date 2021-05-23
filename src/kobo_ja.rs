@@ -12,13 +12,13 @@ use crate::{hiragana_to_katakana, strip_non_kana};
 
 #[derive(Clone, Debug)]
 pub struct Entry {
-    key: String,
-    writings: Vec<String>,
-    kana: String,
-    definition: String,
+    pub key: String,
+    pub writings: Vec<String>,
+    pub kana: String,
+    pub definition: String,
 }
 
-pub fn parse(path: &Path) -> std::io::Result<Vec<Entry>> {
+pub fn parse(path: &Path, print_progress: bool) -> std::io::Result<Vec<Entry>> {
     let mut zip_in = zip::ZipArchive::new(BufReader::new(File::open(path)?))?;
     let re_writings = regex::Regex::new(r"【([^】]*)】").unwrap();
 
@@ -26,6 +26,10 @@ pub fn parse(path: &Path) -> std::io::Result<Vec<Entry>> {
     let mut data = Vec::new();
     let mut html = String::new();
     for i in 0..zip_in.len() {
+        if print_progress {
+            print!("\rLoading Kobo dictionary: {}/{}", i + 1, zip_in.len());
+        }
+
         let mut f = zip_in.by_index(i).unwrap();
 
         // Skip if it's not one of the html files.
@@ -159,6 +163,7 @@ pub fn parse(path: &Path) -> std::io::Result<Vec<Entry>> {
             }
         }
     }
+    println!();
 
     Ok(entry_list)
 }
