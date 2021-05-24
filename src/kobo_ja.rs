@@ -46,6 +46,12 @@ pub fn parse(path: &Path, print_progress: bool) -> std::io::Result<Vec<Entry>> {
         ungz.read_to_string(&mut html)?;
 
         // Parse the file, adding entries to the entry list as we go.
+        //
+        // Note: we leave out images for a couple of reasons:
+        // 1. We don't transfer the images over, so they become broken
+        //    links anyway.
+        // 2. Including too many (broken?) image tags causes Kobo to crash
+        //    if they're in one of its dictionaries.
         let mut parser = quick_xml::Reader::from_str(&html);
         let mut state = PS::None;
         let mut buf = Vec::new();
@@ -57,12 +63,16 @@ pub fn parse(path: &Path, print_progress: bool) -> std::io::Result<Vec<Entry>> {
                 }
 
                 Event::Start(e) => {
+                    // Leave out images.
+                    if e.name() == b"img" {
+                        continue;
+                    }
                     // Are we in the middle of collecting the word header info?
-                    if let PS::Word(word) = state.clone() {
+                    else if let PS::Word(word) = state.clone() {
                         if e.name() == b"b" {
                             // Get the kana pronunciation.
                             let kana = if let Ok(Event::Text(e)) = parser.read_event(&mut buf) {
-                                strip_non_kana(&hiragana_to_katakana(bytes_to_str(&e)))
+                                strip_non_kana(&hiragana_to_katakana(bytes_to_str(&e).trim()))
                             } else {
                                 "".into()
                             };
@@ -97,8 +107,12 @@ pub fn parse(path: &Path, print_progress: bool) -> std::io::Result<Vec<Entry>> {
                 }
 
                 Event::Empty(e) => {
+                    // Leave out images.
+                    if e.name() == b"img" {
+                        continue;
+                    }
                     // Did we find the start of a new entry?
-                    if state == PS::None
+                    else if state == PS::None
                         && e.name() == b"a"
                         && e.attributes().count() > 0
                         && e.attributes().nth(0).unwrap().unwrap().key == b"name"
@@ -116,8 +130,12 @@ pub fn parse(path: &Path, print_progress: bool) -> std::io::Result<Vec<Entry>> {
                 }
 
                 Event::End(e) => {
+                    // Leave out images.
+                    if e.name() == b"img" {
+                        continue;
+                    }
                     // Is it the end of an entry?
-                    if e.name() == b"w" {
+                    else if e.name() == b"w" {
                         if let PS::NeedDefinition {
                             key,
                             kana,

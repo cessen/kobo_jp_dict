@@ -60,7 +60,7 @@ fn main() -> io::Result<()> {
         let parser = jmdict::Parser::from_reader(BufReader::new(File::open(path)?));
 
         for morph in parser {
-            let reading = hiragana_to_katakana(&morph.readings[0]);
+            let reading = strip_non_kana(&hiragana_to_katakana(&morph.readings[0].trim()));
             let writing = if morph.writings.len() > 0 {
                 morph.writings[0].clone()
             } else {
@@ -108,18 +108,32 @@ fn main() -> io::Result<()> {
     let mut entries = Vec::new();
     for ((kanji, kana), item) in jm_table.iter() {
         for morph in item.iter() {
-            let mut definition: String = "<hr/>".into();
+            let mut entry_text: String = "<hr/>".into();
 
-            definition.push_str(&generate_header_text(
+            entry_text.push_str(&generate_header_text(
                 &kana,
                 pa_table.get(&(kanji.clone(), kana.clone())).map(|pa| *pa),
                 &morph,
             ));
-            definition.push_str(&generate_definition_text(&morph));
+
+            // Note: we only include the Japanese definition text if
+            // we actually have a kanji writing for the word.  Matching
+            // on kana would introduce too many false positive matches.
+            if !kanji.is_empty() && !is_all_kana(kanji) {
+                entry_text.push_str(&generate_definition_text(
+                    &morph,
+                    kobo_table
+                        .get(&(kanji.clone(), kana.clone()))
+                        .map(|a| a.as_slice())
+                        .unwrap_or(&[]),
+                ));
+            } else {
+                entry_text.push_str(&generate_definition_text(&morph, &[]));
+            }
 
             entries.push(kobo::Entry {
                 keys: generate_lookup_keys(morph),
-                definition,
+                definition: entry_text,
             });
         }
     }
@@ -192,14 +206,18 @@ fn generate_header_text(kana: &str, pitch_accent: Option<u32>, morph: &Morph) ->
 }
 
 /// Generate English definition text from the given morph.
-fn generate_definition_text(morph: &Morph) -> String {
+fn generate_definition_text(morph: &Morph, kobo_entries: &[kobo_ja::Entry]) -> String {
     let mut text = String::new();
 
-    text.push_str("<p style=\"margin-top: 0.6em; margin-bottom: 0.6em;\">");
+    text.push_str("<p style=\"margin-top: 0.7em; margin-bottom: 0.7em;\">");
     for (i, def) in morph.definitions.iter().enumerate() {
         text.push_str(&format!("<b>{}.</b> {}<br/>", i + 1, def));
     }
     text.push_str("</p>");
+
+    for kobo_entry in kobo_entries.iter().take(1) {
+        text.push_str(&kobo_entry.definition);
+    }
 
     text
 }
@@ -425,7 +443,7 @@ fn katakana_to_hiragana(text: &str) -> String {
 fn is_all_kana(text: &str) -> bool {
     let mut all_kana = true;
     for ch in text.chars() {
-        all_kana |= is_kana(ch);
+        all_kana &= is_kana(ch);
     }
     all_kana
 }
