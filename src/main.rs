@@ -209,7 +209,14 @@ fn generate_lookup_keys(morph: &Morph) -> Vec<String> {
     let mut keys = Vec::new();
 
     let mut end_replace_push = |word: &str, trail: &str, endings: &[&str]| {
+        // We include the katakana version for all-hiragana
+        // words as well because for some reason that's how Kobo
+        // looks up hiragana words.
+        if is_all_kana(word) {
+            keys.push(hiragana_to_katakana(word));
+        }
         keys.push(word.into());
+
         if trail.len() > 0 && word.len() >= trail.len() && word.ends_with(trail) {
             let stem = {
                 let mut stem: String = word.into();
@@ -218,7 +225,11 @@ fn generate_lookup_keys(morph: &Morph) -> Vec<String> {
             };
 
             for end in endings.iter() {
-                keys.push(format!("{}{}", stem, end));
+                let variant = format!("{}{}", stem, end);
+                if is_all_kana(&variant) {
+                    keys.push(hiragana_to_katakana(&variant));
+                }
+                keys.push(variant);
             }
         }
     };
@@ -340,6 +351,7 @@ fn generate_lookup_keys(morph: &Morph) -> Vec<String> {
     }
 
     keys.sort();
+    keys.dedup();
     keys
 }
 
