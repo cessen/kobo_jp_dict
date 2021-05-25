@@ -359,7 +359,7 @@ fn generate_lookup_keys(morph: &Morph) -> Vec<String> {
             }
 
             IAdjective => {
-                end_replace_push(word, "い", &["く", "け", "かった", "かって"]);
+                end_replace_push(word, "い", &["", "く", "け", "かった", "かって"]);
             }
 
             _ => {
