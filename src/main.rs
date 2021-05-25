@@ -23,18 +23,11 @@ fn main() -> io::Result<()> {
                 .index(1),
         )
         .arg(
-            clap::Arg::with_name("kobo_ja_dict")
-                .short("k")
-                .long("kobo_ja_dict")
-                .help("Path to the Kobo Japanese-Japanese dictionary file if available")
-                .value_name("PATH")
-                .takes_value(true),
-        )
-        .arg(
             clap::Arg::with_name("jmdict")
                 .short("j")
                 .long("jmdict")
                 .help("Path to the JMDict file if available")
+                .required(true)
                 .value_name("PATH")
                 .takes_value(true),
         )
@@ -45,6 +38,19 @@ fn main() -> io::Result<()> {
                 .help("Path to the pitch accent file if available")
                 .value_name("PATH")
                 .takes_value(true),
+        )
+        .arg(
+            clap::Arg::with_name("kobo_ja_dict")
+                .short("k")
+                .long("kobo_ja_dict")
+                .help("Path to the Kobo Japanese-Japanese dictionary file if available")
+                .value_name("PATH")
+                .takes_value(true),
+        )
+        .arg(
+            clap::Arg::with_name("katakana_pronunciation")
+                .long("katakana")
+                .help("Use katakana instead of hiragana for word pronunciation"),
         )
         .get_matches();
 
@@ -110,27 +116,31 @@ fn main() -> io::Result<()> {
         for morph in item.iter() {
             let mut entry_text: String = "<hr/>".into();
 
-            entry_text.push_str(&generate_header_text(
-                &kana,
-                pa_table.get(&(kanji.clone(), kana.clone())).map(|pa| *pa),
-                &morph,
-            ));
-
-            // Note: we only include the Japanese definition text if
-            // we actually have a kanji writing for the word.  Matching
-            // on kana would introduce too many false positive matches.
-            if !kanji.is_empty() && !is_all_kana(kanji) {
-                entry_text.push_str(&generate_definition_text(
-                    &morph,
+            // Only match to other dictionaries if we actually have
+            // a kanji writing for the word.  Matching on kana would
+            // introduce too many false positive matches.
+            let (pitch_accent, kobo_jp_entries) = if !kanji.is_empty() && !is_all_kana(kanji) {
+                (
+                    pa_table.get(&(kanji.clone(), kana.clone())).map(|pa| *pa),
                     kobo_table
                         .get(&(kanji.clone(), kana.clone()))
                         .map(|a| a.as_slice())
                         .unwrap_or(&[]),
-                ));
+                )
             } else {
-                entry_text.push_str(&generate_definition_text(&morph, &[]));
-            }
+                (None, &[][..])
+            };
 
+            // Add header and definition to the entry text.
+            entry_text.push_str(&generate_header_text(
+                matches.is_present("katakana_pronunciation"),
+                &kana,
+                pitch_accent,
+                &morph,
+            ));
+            entry_text.push_str(&generate_definition_text(&morph, kobo_jp_entries));
+
+            // Add to the entry list.
             entries.push(kobo::Entry {
                 keys: generate_lookup_keys(morph),
                 definition: entry_text,
@@ -148,8 +158,20 @@ fn main() -> io::Result<()> {
 }
 
 /// Generate header text from the given entry information.
-fn generate_header_text(kana: &str, pitch_accent: Option<u32>, morph: &Morph) -> String {
-    let mut text = format!("{} ", hiragana_to_katakana(&kana),);
+fn generate_header_text(
+    use_katakana: bool,
+    kana: &str,
+    pitch_accent: Option<u32>,
+    morph: &Morph,
+) -> String {
+    let mut text = format!(
+        "{} ",
+        if use_katakana {
+            hiragana_to_katakana(&kana)
+        } else {
+            katakana_to_hiragana(&kana)
+        }
+    );
 
     if let Some(p) = pitch_accent {
         text.push_str(&format!("[{}]", p));
