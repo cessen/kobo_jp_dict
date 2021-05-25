@@ -6,10 +6,10 @@ edition = "2018"
 
 
 [dependencies]
-clap = "2"
-zip = { git = "https://github.com/cessen/zip", branch = "raw_filename" }
+clap = { version = "2", features = ["wrap_help"] }
 flate2 = "1"
 quick-xml = "0.22"
 regex = "1.5"
 tempfile = "3"
 unicode_categories = "0.1"
+zip = { git = "https://github.com/cessen/zip", branch = "raw_filename" }

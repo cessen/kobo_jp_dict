@@ -18,7 +18,7 @@ fn main() -> io::Result<()> {
         .version(clap::crate_version!())
         .arg(
             clap::Arg::with_name("OUTPUT")
-                .help("Sets the output file to create")
+                .help("The output filepath to write the new dictionary to")
                 .required(true)
                 .index(1),
         )
@@ -26,7 +26,7 @@ fn main() -> io::Result<()> {
             clap::Arg::with_name("jmdict")
                 .short("j")
                 .long("jmdict")
-                .help("Path to the JMDict file if available")
+                .help("Path to the JMDict XML file.  This is used as the main source dictionary, and is required")
                 .required(true)
                 .value_name("PATH")
                 .takes_value(true),
@@ -35,7 +35,7 @@ fn main() -> io::Result<()> {
             clap::Arg::with_name("pitch_accent")
                 .short("p")
                 .long("pitch_accent")
-                .help("Path to the pitch accent file if available")
+                .help("Path to the pitch accent file if available.  Will add pitch accent information to matching entries")
                 .value_name("PATH")
                 .takes_value(true),
         )
@@ -43,7 +43,7 @@ fn main() -> io::Result<()> {
             clap::Arg::with_name("kobo_ja_dict")
                 .short("k")
                 .long("kobo_ja_dict")
-                .help("Path to the Kobo Japanese-Japanese dictionary file if available")
+                .help("Path to the Kobo Japanese-Japanese dictionary file if available.  Will add native Japanese definitions to matching entries")
                 .value_name("PATH")
                 .takes_value(true),
         )
