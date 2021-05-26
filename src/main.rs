@@ -86,18 +86,19 @@ fn main() -> io::Result<()> {
     println!("JMDict entries: {}", jm_table.len());
 
     // Open and parse the pitch accent file.
-    let mut pa_table: HashMap<(String, String), u32> = HashMap::new(); // (Kanji, Kana), Pitch Accent
+    let mut pa_table: HashMap<(String, String), Vec<u32>> = HashMap::new(); // (Kanji, Kana), Pitch Accent
     if let Some(path) = matches.value_of("pitch_accent") {
         let reader = BufReader::new(File::open(path)?);
         for line in reader.lines() {
             let line = line.unwrap_or_else(|_| "".into());
-            if line.chars().nth(0).unwrap_or('\n').is_digit(10) {
-                let parts: Vec<_> = line.split("\t").collect();
-                assert_eq!(parts.len(), 7);
-                if let Ok(accent) = parts[5].parse::<u32>() {
-                    pa_table.insert((parts[1].into(), hiragana_to_katakana(parts[2])), accent);
-                }
-            }
+            let parts: Vec<_> = line.split("\t").collect();
+            assert_eq!(parts.len(), 3);
+            let accents: Vec<u32> = parts[2]
+                .split(|ch: char| !ch.is_digit(10))
+                .filter(|s| !s.is_empty())
+                .map(|a| a.parse::<u32>().unwrap())
+                .collect();
+            pa_table.insert((parts[0].into(), hiragana_to_katakana(parts[1])), accents);
         }
     }
     println!("JA Accent entries: {}", pa_table.len());
@@ -127,7 +128,7 @@ fn main() -> io::Result<()> {
             // introduce too many false positive matches.
             let (pitch_accent, kobo_jp_entries) = if !kanji.is_empty() && !is_all_kana(kanji) {
                 (
-                    pa_table.get(&(kanji.clone(), kana.clone())).map(|pa| *pa),
+                    pa_table.get(&(kanji.clone(), kana.clone())),
                     kobo_table
                         .get(&(kanji.clone(), kana.clone()))
                         .map(|a| a.as_slice())
@@ -169,7 +170,7 @@ fn generate_header_text(
     use_katakana: bool,
     use_move_terms: bool,
     kana: &str,
-    pitch_accent: Option<u32>,
+    pitch_accent: Option<&Vec<u32>>,
     morph: &Morph,
 ) -> String {
     let mut text = format!(
@@ -181,8 +182,13 @@ fn generate_header_text(
         }
     );
 
-    if let Some(p) = pitch_accent {
-        text.push_str(&format!(" [{}]", p));
+    if let Some(accent_list) = pitch_accent {
+        if !accent_list.is_empty() {
+            text.push_str(" ");
+            for a in accent_list.iter() {
+                text.push_str(&format!("[{}]", a));
+            }
+        }
     }
 
     text.push_str(" &nbsp;&nbsp;&mdash; 【");
