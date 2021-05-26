@@ -1,14 +1,20 @@
+//! This file contains code for parsing JMDict XML files.
+//!
+//! The `Parser` type takes a buffered reader, and acts as an iterator
+//! that yields a `WordEntry` for each entry in the dictionary, parsing
+//! the input as it goes.
+
+use std::collections::HashSet;
 use std::io::BufRead;
 
 use quick_xml::events::Event;
 
-/// A parser for the JMDict xml format, that yields a `Morph`
-/// struct for each entry in the dictionary.
+/// A parser for the JMDict xml format.
 pub struct Parser<R: BufRead> {
     xml_parser: quick_xml::Reader<R>,
     buf: Vec<u8>,
-    cur_morph: Morph,
-    cur_elem: Elem,
+    cur_entry: WordEntry,
+    cur_xml_elem: Elem,
 }
 
 impl<R: BufRead> Parser<R> {
@@ -16,70 +22,156 @@ impl<R: BufRead> Parser<R> {
         Parser {
             xml_parser: quick_xml::Reader::from_reader(reader),
             buf: Vec::new(),
-            cur_morph: Morph::new(),
-            cur_elem: Elem::None,
+            cur_entry: WordEntry::new(),
+            cur_xml_elem: Elem::None,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Morph {
-    pub writings: Vec<String>,
-    pub readings: Vec<String>,
+pub struct WordEntry {
+    pub writings: Vec<String>, // Kanji-based writings of the word.
+    pub readings: Vec<String>, // Furigana and kana-based writings of the word.
     pub definitions: Vec<String>,
     pub conj: ConjugationClass,
     pub pos: PartOfSpeech,
-    pub usually_kana: bool, // Marks the morph as usually being written in kana alone.
-    pub is_onom: bool,      // Marks that a morph is an onomatopoeia.
+    pub usually_kana: bool, // When true, indicates that the word is usually written in kana alone.
+
+    // List of tags found, in the format "parent_element:entity".
+    // For example, if "<pos>&conj;</pos>" is found in the xml, then there
+    // will be an entry "pos:conj" in this set.
+    // This can give more detailed information about the word than the
+    // filtered and processed struct fields above, when needed.
+    pub tags: HashSet<String>,
 }
 
-impl Morph {
-    pub fn new() -> Morph {
-        Morph {
+impl WordEntry {
+    pub fn new() -> WordEntry {
+        WordEntry {
             writings: Vec::new(),
             readings: Vec::new(),
             definitions: Vec::new(),
             conj: ConjugationClass::Other,
             pos: PartOfSpeech::Unknown,
             usually_kana: false,
-            is_onom: false,
+            tags: HashSet::new(),
         }
     }
 }
 
-impl<R: BufRead> Iterator for Parser<R> {
-    type Item = Morph;
+/// Indicates the conjugation rules that a word follows.
+///
+/// The `Other` variant indicates a word that either doesn't conjugate (such
+/// as nouns, na-adjectives, etc.), or a word whose conjugations rules are
+/// unclear due to being e.g. archaic.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum ConjugationClass {
+    // Default.  Assumed not to conjugate.
+    Other,
 
-    fn next(&mut self) -> Option<Morph> {
+    // だ and words that end with it.
+    Copula,
+
+    // Regular verbs.
+    IchidanVerb,
+    GodanVerbU,
+    GodanVerbTsu,
+    GodanVerbRu,
+    GodanVerbKu,
+    GodanVerbGu,
+    GodanVerbNu,
+    GodanVerbHu, // Doesn't exist in modern Japanese, but does in classical Japanese.
+    GodanVerbBu,
+    GodanVerbMu,
+    GodanVerbSu,
+
+    // Irregular verbs.
+    SuruVerb,      // する and verbs that end with it and conjugate like it.
+    SuruVerbSC,    // Verbs ending in する that don't quite conjugate like it.
+    KuruVerb,      // 来る and verbs that end with it and conjugate like it.
+    IkuVerb,       // 行く and verbs that end with it and conjugate like it.
+    KureruVerb,    // 呉れる / くれる and verbs that end with it and conjugate like it.
+    AruVerb,       // ある ("to be") and verbs that end with it and conjugate like it.
+    SharuVerb,     // Special class of verbs that end with either さる or しゃる.
+    IrregularVerb, // Catch-all for other irregular verbs.
+
+    // Adjectives.
+    IAdjective,
+    IrregularIAdjective, // いい or compound adjectives that end with いい.
+}
+
+/// Indicates a word's grammatical role.
+///
+/// In reality, the specifics of this go
+/// much deeper than what's represented here.  This is just a broad
+/// surface-level categorization.  More detailed breakdowns can be accessed
+/// in `WordEntry::tags` when needed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+pub enum PartOfSpeech {
+    Unknown,
+    Copula,
+    Noun, // Includes na-adjectives, suru-verbs that don't include the
+    // suru, etc.  Basically, anything that behaves like a noun unless
+    // you put something else with it.
+    Particle,
+    Conjunction,
+    Verb,
+    Adverb,
+    Adjective, // i-adjectives only.  Na-adjectives are actually nouns.
+    Expression,
+}
+
+//================================================================
+// Parser implementation.
+
+impl<R: BufRead> Iterator for Parser<R> {
+    type Item = WordEntry;
+
+    fn next(&mut self) -> Option<WordEntry> {
+        fn add_tag(entry: &mut WordEntry, elem: &str, tag: &str) {
+            let tag = tag.trim();
+            if tag.starts_with("&") && tag.ends_with(";") {
+                entry
+                    .tags
+                    .insert(format!("{}:{}", elem, (&tag[1..(tag.len() - 1)])));
+            }
+        }
+
         loop {
             match self.xml_parser.read_event(&mut self.buf) {
                 Ok(Event::Start(ref e)) => match e.name() {
                     b"keb" => {
-                        self.cur_elem = Elem::Keb;
+                        self.cur_xml_elem = Elem::Keb;
                     }
                     b"reb" => {
-                        self.cur_elem = Elem::Reb;
+                        self.cur_xml_elem = Elem::Reb;
                     }
                     b"pos" => {
-                        self.cur_elem = Elem::Pos;
+                        self.cur_xml_elem = Elem::Pos;
                     }
                     b"ke_pri" => {
-                        self.cur_elem = Elem::WritingPriority;
+                        self.cur_xml_elem = Elem::WritingPriority;
                     }
                     b"re_pri" => {
-                        self.cur_elem = Elem::ReadingPriority;
+                        self.cur_xml_elem = Elem::ReadingPriority;
                     }
                     b"misc" => {
-                        self.cur_elem = Elem::Misc;
+                        self.cur_xml_elem = Elem::Misc;
+                    }
+                    b"dial" => {
+                        self.cur_xml_elem = Elem::Dialect;
+                    }
+                    b"field" => {
+                        self.cur_xml_elem = Elem::Field;
                     }
                     b"sense" => {
-                        self.cur_elem = Elem::Sense;
+                        self.cur_xml_elem = Elem::Sense;
 
-                        // Start new definition within the morph.
-                        if self.cur_morph.definitions.is_empty()
-                            || self.cur_morph.definitions.last().unwrap().trim().len() > 0
+                        // Start new definition within the entry.
+                        if self.cur_entry.definitions.is_empty()
+                            || self.cur_entry.definitions.last().unwrap().trim().len() > 0
                         {
-                            self.cur_morph.definitions.push("".into());
+                            self.cur_entry.definitions.push("".into());
                         }
                     }
                     b"gloss" => {
@@ -87,85 +179,92 @@ impl<R: BufRead> Iterator for Parser<R> {
                         // English.  We're ignoring definitions that aren't
                         // written in English.
                         if e.attributes().count() == 0 {
-                            self.cur_elem = Elem::Gloss;
+                            self.cur_xml_elem = Elem::Gloss;
                         }
                     }
                     b"name_type" => {
-                        self.cur_morph.pos = PartOfSpeech::Noun;
+                        self.cur_entry.pos = PartOfSpeech::Noun;
                     }
                     _ => {}
                 },
                 Ok(Event::End(ref e)) => {
-                    self.cur_elem = Elem::None;
+                    self.cur_xml_elem = Elem::None;
                     if e.name() == b"gloss" {
                         // Jump back out into "sense" element.
-                        self.cur_elem = Elem::Sense;
+                        self.cur_xml_elem = Elem::Sense;
                     } else if e.name() == b"sense" {
                         // Remove last two characters, which will just be "; ".
-                        self.cur_morph.definitions.last_mut().unwrap().pop();
-                        self.cur_morph.definitions.last_mut().unwrap().pop();
+                        self.cur_entry.definitions.last_mut().unwrap().pop();
+                        self.cur_entry.definitions.last_mut().unwrap().pop();
                     } else if e.name() == b"entry" {
                         // Clean up the definitions list.
-                        if !self.cur_morph.definitions.is_empty()
-                            && self.cur_morph.definitions.last().unwrap().trim().is_empty()
+                        if !self.cur_entry.definitions.is_empty()
+                            && self.cur_entry.definitions.last().unwrap().trim().is_empty()
                         {
-                            self.cur_morph.definitions.pop();
+                            self.cur_entry.definitions.pop();
                         }
 
-                        // Reset for next entry, and return the morph.
-                        return Some(std::mem::replace(&mut self.cur_morph, Morph::new()));
+                        // Reset for next entry, and return the `WordEntry`.
+                        return Some(std::mem::replace(&mut self.cur_entry, WordEntry::new()));
                     }
                 }
                 Ok(Event::Text(e)) => {
                     let text = std::str::from_utf8(e.escaped()).unwrap().into();
-                    match self.cur_elem {
+                    match self.cur_xml_elem {
                         Elem::Gloss => {
-                            self.cur_morph
+                            self.cur_entry
                                 .definitions
                                 .last_mut()
                                 .unwrap()
                                 .push_str(&format!("{}; ", text));
                         }
                         Elem::Keb => {
-                            self.cur_morph.writings.push(text);
+                            self.cur_entry.writings.push(text);
                         }
                         Elem::Reb => {
-                            self.cur_morph.readings.push(text);
+                            self.cur_entry.readings.push(text);
                         }
                         Elem::Misc => {
+                            add_tag(&mut self.cur_entry, "misc", &text);
+
                             // Usually written in kana alone.
                             if text == "&uk;" {
-                                self.cur_morph.usually_kana = true;
+                                self.cur_entry.usually_kana = true;
                             }
-                            if text == "&on-mim;" {
-                                self.cur_morph.is_onom = true;
-                            }
+                        }
+                        Elem::Dialect => {
+                            add_tag(&mut self.cur_entry, "dial", &text);
+                        }
+                        Elem::Field => {
+                            add_tag(&mut self.cur_entry, "field", &text);
                         }
                         Elem::WritingPriority | Elem::ReadingPriority => {}
                         Elem::Pos => {
+                            add_tag(&mut self.cur_entry, "pos", &text);
+
                             use PartOfSpeech::*;
                             match text.as_str() {
                                 // Expression marker.
                                 "&exp;" => {
-                                    self.cur_morph.pos |= Expression;
+                                    self.cur_entry.pos |= Expression;
                                 },
 
                                 // The copula, だ, and words that use it as an ending.
                                 "&cop-da;" => {
-                                    self.cur_morph.pos |= Copula;
-                                    self.cur_morph.conj |= ConjugationClass::Copula;
+                                    self.cur_entry.pos |= Copula;
+                                    self.cur_entry.conj |= ConjugationClass::Copula;
                                 },
 
                                 // i-adjectives.
                                 "&adj-i;" => {
-                                    self.cur_morph.pos |= Adjective;
-                                    self.cur_morph.conj |= ConjugationClass::IAdjective;
+                                    self.cur_entry.pos |= Adjective;
+                                    self.cur_entry.conj |= ConjugationClass::IAdjective;
                                 },
 
                                 // The adjective いい and compounds that end with it.
                                 "&adj-ix;" => {
-                                    self.cur_morph.pos |= Adjective;
-                                    self.cur_morph.conj |= ConjugationClass::IrregularIAdjective;
+                                    self.cur_entry.pos |= Adjective;
+                                    self.cur_entry.conj |= ConjugationClass::IrregularIAdjective;
                                 },
 
                                 // Words other than i-adjectives that
@@ -175,26 +274,26 @@ impl<R: BufRead> Iterator for Parser<R> {
                                 // require an additional particle to behave
                                 // that way.
                                 "&adj-pn;" => { // Pre-noun adjectival.
-                                    self.cur_morph.pos |= Adjective;
+                                    self.cur_entry.pos |= Adjective;
                                 },
 
                                 // Ichidan verbs.
                                 "&v1;" => {
-                                    self.cur_morph.pos |= Verb((false, false));
-                                    self.cur_morph.conj |= ConjugationClass::IchidanVerb;
+                                    self.cur_entry.pos |= Verb;
+                                    self.cur_entry.conj |= ConjugationClass::IchidanVerb;
                                 },
 
                                 // Godan verbs.
                                 "&vn;" => {
-                                    self.cur_morph.pos |= Verb((false, false));
-                                    self.cur_morph.conj |= ConjugationClass::GodanVerbNu;
+                                    self.cur_entry.pos |= Verb;
+                                    self.cur_entry.conj |= ConjugationClass::GodanVerbNu;
                                 }
                                 "&v5u;" | "&v5n;" | "&v4b;" | "&v5b;" | "&v4g;"
                                 | "&v5g;" | "&v4h;" | "&v4k;" | "&v5k;" | "&v4m;"
                                 | "&v5m;" | "&v4r;" | "&v5r;" | "&v4s;" | "&v5s;"
                                 | "&v4t;" | "&v5t;" => {
-                                    self.cur_morph.pos |= Verb((false, false));
-                                    self.cur_morph.conj |= match &text[3..4] {
+                                    self.cur_entry.pos |= Verb;
+                                    self.cur_entry.conj |= match &text[3..4] {
                                         "u" => ConjugationClass::GodanVerbU,
                                         "t" => ConjugationClass::GodanVerbTsu,
                                         "r" => ConjugationClass::GodanVerbRu,
@@ -212,64 +311,64 @@ impl<R: BufRead> Iterator for Parser<R> {
                                 // する and verbs that end with it and conjugate
                                 // like it.
                                 "&vs-i;" => {
-                                    self.cur_morph.pos |= Verb((false, false));
-                                    self.cur_morph.conj |= ConjugationClass::SuruVerb;
+                                    self.cur_entry.pos |= Verb;
+                                    self.cur_entry.conj |= ConjugationClass::SuruVerb;
                                 },
 
                                 // Verbs ending in する but that don't quite
                                 // conjugate like it.
                                 "&vs-s;" => {
-                                    self.cur_morph.pos |= Verb((false, false));
-                                    self.cur_morph.conj |= ConjugationClass::SuruVerbSC;
+                                    self.cur_entry.pos |= Verb;
+                                    self.cur_entry.conj |= ConjugationClass::SuruVerbSC;
                                 },
 
                                 // 来る and verbs that end with it and conjugate
                                 // like it.
                                 "&vk;" => {
-                                    self.cur_morph.pos |= Verb((false, false));
-                                    self.cur_morph.conj |= ConjugationClass::KuruVerb;
+                                    self.cur_entry.pos |= Verb;
+                                    self.cur_entry.conj |= ConjugationClass::KuruVerb;
                                 },
 
                                 // 行く and verbs that end with it or its variants
                                 // (いく and ゆく) and conjugate like it.
                                 "&v5k-s;" => {
-                                    self.cur_morph.pos |= Verb((false, false));
-                                    self.cur_morph.conj |= ConjugationClass::IkuVerb;
+                                    self.cur_entry.pos |= Verb;
+                                    self.cur_entry.conj |= ConjugationClass::IkuVerb;
                                 }
 
                                 // Special class of verbs that end with either
                                 // さる or しゃる.
                                 "&v5aru;" => {
-                                    self.cur_morph.pos |= Verb((false, false));
-                                    self.cur_morph.conj |= ConjugationClass::SharuVerb;
+                                    self.cur_entry.pos |= Verb;
+                                    self.cur_entry.conj |= ConjugationClass::SharuVerb;
                                 },
 
                                 // ある ("to be") and verbs that end with and
                                 // conjugate like it.
                                 "&v5r-i;" => {
-                                    self.cur_morph.pos |= Verb((false, false));
-                                    self.cur_morph.conj |= ConjugationClass::AruVerb;
+                                    self.cur_entry.pos |= Verb;
+                                    self.cur_entry.conj |= ConjugationClass::AruVerb;
                                 },
 
                                 // 呉れる / くれる and words the end with it.
                                 "&v1-s;" => {
-                                    self.cur_morph.pos |= Verb((false, false));
-                                    self.cur_morph.conj |= ConjugationClass::KureruVerb;
+                                    self.cur_entry.pos |= Verb;
+                                    self.cur_entry.conj |= ConjugationClass::KureruVerb;
                                 }
 
                                 // Other irregular verbs.
                                 "&vz;" | // ずる verb.
                                 "&v5u-s;" // Special class of う verbs.
                                 => {
-                                    self.cur_morph.pos |= Verb((false, false));
-                                    self.cur_morph.conj |= ConjugationClass::IrregularVerb;
+                                    self.cur_entry.pos |= Verb;
+                                    self.cur_entry.conj |= ConjugationClass::IrregularVerb;
                                 },
 
                                 // Words that essentially classify as nouns.
-                                "&vs;" | // So-called する verb, essentially a nouns.
-                                "&adj-na;" | // な adjective, essentially a nouns.
-                                "&adj-no;" | // の adjective, essentially a nouns.
-                                "&adj-t;" | // たる adjective, essentially a nouns.
+                                "&vs;" | // So-called する verb, grammatically a noun.
+                                "&adj-na;" | // な adjective, grammatically a noun.
+                                "&adj-no;" | // の adjective, grammatically a noun.
+                                "&adj-t;" | // たる adjective, grammatically a noun.
                                 "&n-adv;" | // Adverbial noun.
                                 "&n-pref;" | // Noun used as prefix.
                                 "&n-suf;" | // Noun used as suffix.
@@ -277,37 +376,29 @@ impl<R: BufRead> Iterator for Parser<R> {
                                 "&n;" | // Noun
                                 "&pn;" | // Pronoun.
                                 "&num;" => {
-                                    self.cur_morph.pos |= Noun;
+                                    self.cur_entry.pos |= Noun;
                                 }
 
                                 // Adverbs
                                 "&adv-to;" |
                                 "&adv;" => {
-                                    self.cur_morph.pos |= Adverb;
+                                    self.cur_entry.pos |= Adverb;
                                 }
 
                                 // Particle
                                 "&prt;" => {
-                                    self.cur_morph.pos |= Particle;
+                                    self.cur_entry.pos |= Particle;
                                 }
 
                                 // Conjunction.
                                 "&conj;" => {
-                                    self.cur_morph.pos |= Conjunction;
-                                }
-
-                                // Specifies that a verb is transitive.
-                                "&vt;" => {
-                                    self.cur_morph.pos |= Verb((true, false));
-                                }
-
-                                // Specifies that a verb is intransitive.
-                                "&vi;" => {
-                                    self.cur_morph.pos |= Verb((false, true));
+                                    self.cur_entry.pos |= Conjunction;
                                 }
 
                                 // Categories that we don't care about or don't know
                                 // what to do with right now.
+                                "&vt;" | // Transitive verb.
+                                "&vi;" | // Intransitive verb.
                                 "&adj-f;" | // Noun or verb acting prenominally.
                                 "&ctr;" | // Counter.
                                 "&int;" | // Interjection.
@@ -381,34 +472,14 @@ enum Elem {
     WritingPriority,
     ReadingPriority,
     Misc,
+    Dialect,
+    Field,
     Sense,
     Gloss,
 }
 
 //================================================================
-
-// Describes what kind of word the morph is, in terms of its grammatical
-// function in a sentence.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
-pub enum PartOfSpeech {
-    Unknown,
-    Copula,
-    Noun, // Includes na-adjectives, suru-verbs that don't include the
-    // suru, etc.  Basically, anything that behaves like a noun unless
-    // you put something else with it.
-    Particle,
-    Conjunction,
-    // It might seem weird that we're tracking transitive/intransitive with
-    // two bools rather than just one that indicates which of the two the
-    // verb is.  But JMDict sometimes specifies neither, and also sometimes
-    // different senses of the same word might be different, resulting in both
-    // flags being set.  so this lets us capture those things in a little bit
-    // more detail so it can be handled appropriately further down the line.
-    Verb((bool, bool)), // (transitive, intransitive)
-    Adverb,
-    Adjective,
-    Expression,
-}
+// Impls for other types in this file.
 
 impl std::ops::BitOr for PartOfSpeech {
     type Output = Self;
@@ -424,30 +495,25 @@ impl std::ops::BitOr for PartOfSpeech {
             Adjective => 6,
             Adverb => 5,
             Noun => 4,
-            Verb(_) => 3,
+            Verb => 3,
             Expression => 2,
             Unknown => 0,
         };
 
-        if let (Verb((t1, it1)), Verb((t2, it2))) = (self, rhs) {
-            // If they're both verbs, combine the transitivity flags.
-            Verb((t1 | t2, it1 | it2))
+        let self_p = class_to_priority(self);
+        let rhs_p = class_to_priority(rhs);
+
+        assert!(
+            (self_p != rhs_p) || (self == rhs),
+            "Attempt to compose different part-of-speech types with the same priority: {:?} | {:?}",
+            self,
+            rhs
+        );
+
+        if self_p >= rhs_p {
+            self
         } else {
-            let self_p = class_to_priority(self);
-            let rhs_p = class_to_priority(rhs);
-
-            assert!(
-                (self_p != rhs_p) || (self == rhs),
-                "Attempt to compose part of speech types with the same priority: {:?} | {:?}",
-                self,
-                rhs
-            );
-
-            if self_p > rhs_p {
-                self
-            } else {
-                rhs
-            }
+            rhs
         }
     }
 }
@@ -456,45 +522,6 @@ impl std::ops::BitOrAssign for PartOfSpeech {
     fn bitor_assign(&mut self, rhs: Self) {
         *self = *self | rhs;
     }
-}
-
-// Describes the type of conjugation that a given morpheme follows.
-//
-// The `Other` variant assumes no conjugation, and is used for nouns,
-// na-adjectives, etc.  It is also used for archaic words that we don't care
-// about and aren't sure how to conjugate.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-pub enum ConjugationClass {
-    // Default.  Assumed not to conjugate.
-    Other,
-
-    // だ and words that end with it.
-    Copula,
-
-    // Verbs.
-    IchidanVerb,
-    GodanVerbU,
-    GodanVerbTsu,
-    GodanVerbRu,
-    GodanVerbKu,
-    GodanVerbGu,
-    GodanVerbNu,
-    GodanVerbHu, // Actually yodan, not godan, but follows the same rules.
-    GodanVerbBu,
-    GodanVerbMu,
-    GodanVerbSu,
-    SuruVerb,      // する and verbs that end with it and conjugate like it.
-    SuruVerbSC,    // Verbs ending in する that don't quite conjugate like it.
-    KuruVerb,      // 来る and verbs that end with it and conjugate like it.
-    IkuVerb, // 行く or its variants いく and ゆく and words that end with them and conjugate like them.
-    KureruVerb, // 呉れる / くれる and verbs that end with it and conjugate like it.
-    AruVerb, // ある ("to be") and verbs that end with it and conjugate like it.
-    SharuVerb, // Special class of verbs that end with either さる or しゃる.
-    IrregularVerb, // Other irregular verbs.  Catch-all for irregular verbs that we don't care about handling for now.
-
-    // Adjectives.
-    IAdjective,
-    IrregularIAdjective, // いい or compound adjectives that end with いい.
 }
 
 impl std::ops::BitOr for ConjugationClass {
