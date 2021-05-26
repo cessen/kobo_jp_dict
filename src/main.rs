@@ -76,7 +76,7 @@ fn main() -> io::Result<()> {
             let writing = if entry.writings.len() > 0 {
                 entry.writings[0].clone()
             } else {
-                reading.clone()
+                entry.readings[0].trim().into()
             };
 
             let e = jm_table.entry((writing, reading)).or_insert(Vec::new());
@@ -130,20 +130,15 @@ fn main() -> io::Result<()> {
         for jm_entry in item.iter() {
             let mut entry_text: String = "<hr/>".into();
 
-            // Only match to other dictionaries if we actually have
-            // a non-hiragana writing for the word.  Matching on hiragana
-            // introduces too many false positive matches.
-            let (pitch_accent, kobo_jp_entries) = if !kanji.is_empty() && !is_all_hiragana(kanji) {
-                (
-                    pa_table.get(&(kanji.clone(), kana.clone())),
-                    kobo_table
-                        .get(&(kanji.clone(), kana.clone()))
-                        .map(|a| a.as_slice())
-                        .unwrap_or(&[]),
-                )
-            } else {
-                (None, &[][..])
-            };
+            // Find matching entries in other source dictionaries.
+            let pitch_accent = pa_table.get(&(kanji.clone(), kana.clone()));
+            let kobo_jp_entries = kobo_table
+                .get(&(kanji.clone(), kana.clone()))
+                .map(|a| a.as_slice())
+                .unwrap_or(&[]);
+            if kana == "スッカリ" {
+                println!("{} {} {:?}", kanji, kana, pitch_accent);
+            }
 
             // Add header and definition to the entry text.
             entry_text.push_str(&generate_header_text(
