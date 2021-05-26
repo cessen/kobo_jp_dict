@@ -180,20 +180,20 @@ impl<R: BufRead> Iterator for Parser<R> {
 
                                 // Ichidan verbs.
                                 "&v1;" => {
-                                    self.cur_morph.pos |= Verb;
+                                    self.cur_morph.pos |= Verb((false, false));
                                     self.cur_morph.conj |= ConjugationClass::IchidanVerb;
                                 },
 
                                 // Godan verbs.
                                 "&vn;" => {
-                                    self.cur_morph.pos |= Verb;
+                                    self.cur_morph.pos |= Verb((false, false));
                                     self.cur_morph.conj |= ConjugationClass::GodanVerbNu;
                                 }
                                 "&v5u;" | "&v5n;" | "&v4b;" | "&v5b;" | "&v4g;"
                                 | "&v5g;" | "&v4h;" | "&v4k;" | "&v5k;" | "&v4m;"
                                 | "&v5m;" | "&v4r;" | "&v5r;" | "&v4s;" | "&v5s;"
                                 | "&v4t;" | "&v5t;" => {
-                                    self.cur_morph.pos |= Verb;
+                                    self.cur_morph.pos |= Verb((false, false));
                                     self.cur_morph.conj |= match &text[3..4] {
                                         "u" => ConjugationClass::GodanVerbU,
                                         "t" => ConjugationClass::GodanVerbTsu,
@@ -212,48 +212,48 @@ impl<R: BufRead> Iterator for Parser<R> {
                                 // する and verbs that end with it and conjugate
                                 // like it.
                                 "&vs-i;" => {
-                                    self.cur_morph.pos |= Verb;
+                                    self.cur_morph.pos |= Verb((false, false));
                                     self.cur_morph.conj |= ConjugationClass::SuruVerb;
                                 },
 
                                 // Verbs ending in する but that don't quite
                                 // conjugate like it.
                                 "&vs-s;" => {
-                                    self.cur_morph.pos |= Verb;
+                                    self.cur_morph.pos |= Verb((false, false));
                                     self.cur_morph.conj |= ConjugationClass::SuruVerbSC;
                                 },
 
                                 // 来る and verbs that end with it and conjugate
                                 // like it.
                                 "&vk;" => {
-                                    self.cur_morph.pos |= Verb;
+                                    self.cur_morph.pos |= Verb((false, false));
                                     self.cur_morph.conj |= ConjugationClass::KuruVerb;
                                 },
 
                                 // 行く and verbs that end with it or its variants
                                 // (いく and ゆく) and conjugate like it.
                                 "&v5k-s;" => {
-                                    self.cur_morph.pos |= Verb;
+                                    self.cur_morph.pos |= Verb((false, false));
                                     self.cur_morph.conj |= ConjugationClass::IkuVerb;
                                 }
 
                                 // Special class of verbs that end with either
                                 // さる or しゃる.
                                 "&v5aru;" => {
-                                    self.cur_morph.pos |= Verb;
+                                    self.cur_morph.pos |= Verb((false, false));
                                     self.cur_morph.conj |= ConjugationClass::SharuVerb;
                                 },
 
                                 // ある ("to be") and verbs that end with and
                                 // conjugate like it.
                                 "&v5r-i;" => {
-                                    self.cur_morph.pos |= Verb;
+                                    self.cur_morph.pos |= Verb((false, false));
                                     self.cur_morph.conj |= ConjugationClass::AruVerb;
                                 },
 
                                 // 呉れる / くれる and words the end with it.
                                 "&v1-s;" => {
-                                    self.cur_morph.pos |= Verb;
+                                    self.cur_morph.pos |= Verb((false, false));
                                     self.cur_morph.conj |= ConjugationClass::KureruVerb;
                                 }
 
@@ -261,7 +261,7 @@ impl<R: BufRead> Iterator for Parser<R> {
                                 "&vz;" | // ずる verb.
                                 "&v5u-s;" // Special class of う verbs.
                                 => {
-                                    self.cur_morph.pos |= Verb;
+                                    self.cur_morph.pos |= Verb((false, false));
                                     self.cur_morph.conj |= ConjugationClass::IrregularVerb;
                                 },
 
@@ -296,6 +296,16 @@ impl<R: BufRead> Iterator for Parser<R> {
                                     self.cur_morph.pos |= Conjunction;
                                 }
 
+                                // Specifies that a verb is transitive.
+                                "&vt;" => {
+                                    self.cur_morph.pos |= Verb((true, false));
+                                }
+
+                                // Specifies that a verb is intransitive.
+                                "&vi;" => {
+                                    self.cur_morph.pos |= Verb((false, true));
+                                }
+
                                 // Categories that we don't care about or don't know
                                 // what to do with right now.
                                 "&adj-f;" | // Noun or verb acting prenominally.
@@ -307,8 +317,6 @@ impl<R: BufRead> Iterator for Parser<R> {
                                 "&pref;" | // Prefix.
                                 "&suf;" | // Suffix.
                                 "&unc;" | // Unclassified.
-                                "&vt;" | // Specifies that a verb is transitive.
-                                "&vi;" | // Specifies that a verb is intransitive.
                                 // Archaic verbs.
                                 "&adj-kari;" | // Archaic.
                                 "&adj-ku;" | // Archaic.
@@ -390,7 +398,13 @@ pub enum PartOfSpeech {
     // you put something else with it.
     Particle,
     Conjunction,
-    Verb,
+    // It might seem weird that we're tracking transitive/intransitive with
+    // two bools rather than just one that indicates which of the two the
+    // verb is.  But JMDict sometimes specifies neither, and also sometimes
+    // different senses of the same word might be different, resulting in both
+    // flags being set.  so this lets us capture those things in a little bit
+    // more detail so it can be handled appropriately further down the line.
+    Verb((bool, bool)), // (transitive, intransitive)
     Adverb,
     Adjective,
     Expression,
@@ -410,25 +424,30 @@ impl std::ops::BitOr for PartOfSpeech {
             Adjective => 6,
             Adverb => 5,
             Noun => 4,
-            Verb => 3,
+            Verb(_) => 3,
             Expression => 2,
             Unknown => 0,
         };
 
-        let self_p = class_to_priority(self);
-        let rhs_p = class_to_priority(rhs);
-
-        assert!(
-            (self_p != rhs_p) || (self == rhs),
-            "Attempt to compose part of speech types with the same priority: {:?} | {:?}",
-            self,
-            rhs
-        );
-
-        if self_p > rhs_p {
-            self
+        if let (Verb((t1, it1)), Verb((t2, it2))) = (self, rhs) {
+            // If they're both verbs, combine the transitivity flags.
+            Verb((t1 | t2, it1 | it2))
         } else {
-            rhs
+            let self_p = class_to_priority(self);
+            let rhs_p = class_to_priority(rhs);
+
+            assert!(
+                (self_p != rhs_p) || (self == rhs),
+                "Attempt to compose part of speech types with the same priority: {:?} | {:?}",
+                self,
+                rhs
+            );
+
+            if self_p > rhs_p {
+                self
+            } else {
+                rhs
+            }
         }
     }
 }

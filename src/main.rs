@@ -52,6 +52,12 @@ fn main() -> io::Result<()> {
                 .long("katakana")
                 .help("Use katakana instead of hiragana for word pronunciation"),
         )
+        .arg(
+            clap::Arg::with_name("use_move_terms")
+                .short("m")
+                .long("use_move_terms")
+                .help("Use the terms \"other-move\" and \"self-move\" instead of \"transitive\" and \"intransitive\".  The former is more accurate to how Japanese works, but the latter are more commonly known and used"),
+        )
         .get_matches();
 
     // Output zip archive path.
@@ -134,6 +140,7 @@ fn main() -> io::Result<()> {
             // Add header and definition to the entry text.
             entry_text.push_str(&generate_header_text(
                 matches.is_present("katakana_pronunciation"),
+                matches.is_present("use_move_terms"),
                 &kana,
                 pitch_accent,
                 &morph,
@@ -160,12 +167,13 @@ fn main() -> io::Result<()> {
 /// Generate header text from the given entry information.
 fn generate_header_text(
     use_katakana: bool,
+    use_move_terms: bool,
     kana: &str,
     pitch_accent: Option<u32>,
     morph: &Morph,
 ) -> String {
     let mut text = format!(
-        "{} ",
+        "{}",
         if use_katakana {
             hiragana_to_katakana(&kana)
         } else {
@@ -174,7 +182,7 @@ fn generate_header_text(
     );
 
     if let Some(p) = pitch_accent {
-        text.push_str(&format!("[{}]", p));
+        text.push_str(&format!(" [{}]", p));
     }
 
     text.push_str(" &nbsp;&nbsp;&mdash; 【");
@@ -193,24 +201,74 @@ fn generate_header_text(
     text.push_str("】");
 
     const WORD_TYPE_START: &'static str =
-        "<span style=\"font-size: 0.8em; font-style: italic; margin-left: 1.5em;\">";
+        " <span style=\"font-size: 0.8em; font-style: italic; margin-left: 0;\">";
     const WORD_TYPE_END: &'static str = "</span>";
     match morph.pos {
-        PartOfSpeech::Verb => {
-            if morph.conj == ConjugationClass::IchidanVerb {
-                text.push_str(&format!(
-                    "{}{}{}",
-                    WORD_TYPE_START, "verb, ichidan", WORD_TYPE_END
-                ));
-            } else {
-                text.push_str(&format!("{}{}{}", WORD_TYPE_START, "verb", WORD_TYPE_END));
-            }
+        PartOfSpeech::Verb((transitive, intransitive)) => {
+            use ConjugationClass::*;
+            let conj_type_text = match morph.conj {
+                IchidanVerb => ",&nbsp;ichidan",
+
+                GodanVerbU
+                | GodanVerbTsu
+                | GodanVerbRu
+                | GodanVerbKu
+                | GodanVerbGu
+                | GodanVerbNu
+                | GodanVerbBu
+                | GodanVerbMu
+                | GodanVerbSu => ",&nbsp;godan",
+
+                SuruVerb
+                | SuruVerbSC
+                | KuruVerb
+                | IkuVerb
+                | KureruVerb
+                | AruVerb
+                | SharuVerb
+                | GodanVerbHu // Doesn't exist in modern Japanese, so we're calling it irregular.
+                | IrregularVerb => ",&nbsp;irregular",
+
+                _ => "",
+            };
+
+            let transitive_text = match (transitive, intransitive) {
+                (true, false) => {
+                    if use_move_terms {
+                        ",&nbsp;other-move"
+                    } else {
+                        ",&nbsp;transitive"
+                    }
+                }
+                (false, true) => {
+                    if use_move_terms {
+                        ",&nbsp;self-move"
+                    } else {
+                        ",&nbsp;intransitive"
+                    }
+                }
+                _ => "",
+            };
+
+            text.push_str(&format!(
+                "{}verb{}{}{}",
+                WORD_TYPE_START, conj_type_text, transitive_text, WORD_TYPE_END
+            ));
         }
 
         PartOfSpeech::Adjective => {
+            use ConjugationClass::*;
+            let adjective_type_text = match morph.conj {
+                IAdjective => "i-adjective",
+
+                IrregularIAdjective => "i-adjective,&nbsp;irregular",
+
+                _ => "adjective",
+            };
+
             text.push_str(&format!(
                 "{}{}{}",
-                WORD_TYPE_START, "i-adjective", WORD_TYPE_END
+                WORD_TYPE_START, adjective_type_text, WORD_TYPE_END
             ));
         }
 
