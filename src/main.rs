@@ -159,11 +159,10 @@ fn main() -> io::Result<()> {
             entries.push(kobo::Entry {
                 keys: generate_lookup_keys(jm_entry),
                 definition: entry_text,
-                priority: jm_entry.priority,
             });
         }
     }
-    entries.sort_by_key(|a| a.keys[0].len());
+    entries.sort_by_key(|a| a.keys[0].0.len());
 
     //----------------------------------------------------------------
     // Write the new dictionary file.
@@ -320,18 +319,26 @@ fn generate_definition_text(jm_entry: &WordEntry, kobo_entries: &[kobo_ja::Entry
 
 /// Generates the look-up keys for a JMDict word entry, including
 /// basic conjugations.
-fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<String> {
+fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<(String, u32)> {
     let mut keys = Vec::new();
 
     let mut end_replace_push = |word: &str, trail: &str, endings: &[&str]| {
+        // If a word is usually written in kana, give the kana form a major
+        // priority boost.
+        let priority = if is_all_kana(word) && jm_entry.usually_kana {
+            jm_entry.priority / 8
+        } else {
+            jm_entry.priority
+        };
+
         // We include the katakana version for all-hiragana
         // words as well because for some reason that's how Kobo
         // looks up hiragana words.  Leaving this out causes the Kobo
         // to completely fail to find entries for all-hirigana words.
         if is_all_kana(word) {
-            keys.push(hiragana_to_katakana(word));
+            keys.push((hiragana_to_katakana(word), priority));
         }
-        keys.push(word.into());
+        keys.push((word.into(), priority));
 
         if trail.len() > 0 && word.len() >= trail.len() && word.ends_with(trail) {
             let stem = {
@@ -343,9 +350,9 @@ fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<String> {
             for end in endings.iter() {
                 let variant = format!("{}{}", stem, end);
                 if is_all_kana(&variant) {
-                    keys.push(hiragana_to_katakana(&variant));
+                    keys.push((hiragana_to_katakana(&variant), priority));
                 }
-                keys.push(variant);
+                keys.push((variant, priority));
             }
         }
     };
@@ -474,7 +481,7 @@ fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<String> {
         };
     }
 
-    keys.sort();
+    keys.sort_by_key(|a| (a.1, a.0.len(), a.0.clone()));
     keys.dedup();
     keys
 }

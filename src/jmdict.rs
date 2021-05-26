@@ -63,7 +63,7 @@ impl WordEntry {
             conj: ConjugationClass::Other,
             pos: PartOfSpeech::Unknown,
             usually_kana: false,
-            priority: 100,
+            priority: 100000,
             tags: HashSet::new(),
         }
     }
@@ -222,12 +222,12 @@ impl<R: BufRead> Iterator for Parser<R> {
                         };
                         for p_text in priorities.iter() {
                             let p = if p_text.starts_with("nf") {
-                                (&p_text[2..]).parse::<u32>().unwrap().saturating_sub(1)
+                                (&p_text[2..]).parse::<u32>().unwrap().saturating_sub(1) * 500
                             } else {
                                 match p_text.as_str() {
-                                    "news1" | "ichi1" | "gai1" => 12,
-                                    "news2" | "ichi2" | "gai2" => 36,
-                                    _ => 1000,
+                                    "news1" | "ichi1" | "gai1" => 6000,
+                                    "news2" | "ichi2" | "gai2" => 18000,
+                                    _ => 24000,
                                 }
                             };
                             self.cur_entry.priority = self.cur_entry.priority.min(p);

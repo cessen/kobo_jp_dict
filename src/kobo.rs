@@ -8,12 +8,11 @@ use unicode_categories::UnicodeCategories;
 
 #[derive(Clone, Debug)]
 pub struct Entry {
-    pub keys: Vec<String>,
+    // The integer here is a very rough priority ranking indicating
+    // the commonness of the word, specifically in that form.  A
+    // lower numerical value indicates a more common word.
+    pub keys: Vec<(String, u32)>,
     pub definition: String,
-
-    // A very rough priority ranking indicating the commonness of the word.
-    // A lower numerical value indicates a more common word.
-    pub priority: u32,
 }
 
 pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Result<()> {
@@ -36,7 +35,7 @@ pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Resul
     let words_original = {
         let mut words_original = String::new();
         for key in all_keys.iter() {
-            words_original.push_str(&key);
+            words_original.push_str(&key.0);
             words_original.push('\n');
         }
         words_original
@@ -82,10 +81,10 @@ pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Resul
 
     for entry in entries.iter() {
         for key in entry.keys.iter() {
-            let prefix = dictionary_prefix(key);
+            let prefix = dictionary_prefix(&key.0);
 
             let a = prefix_entries.entry(prefix).or_insert(Vec::new());
-            a.push((key.clone(), entry.definition.clone(), entry.priority));
+            a.push((key.0.clone(), entry.definition.clone(), key.1));
         }
     }
     // Sort by priority, so more common words show up earlier
