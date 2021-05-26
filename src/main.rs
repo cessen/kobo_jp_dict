@@ -82,8 +82,8 @@ fn main() -> io::Result<()> {
             let e = jm_table.entry((writing, reading)).or_insert(Vec::new());
             e.push(entry);
         }
+        println!("JMDict entries: {}", jm_table.len());
     }
-    println!("JMDict entries: {}", jm_table.len());
 
     // Open and parse the pitch accent file.
     let mut pa_table: HashMap<(String, String), Vec<u32>> = HashMap::new(); // (Kanji, Kana), Pitch Accent
@@ -107,8 +107,8 @@ fn main() -> io::Result<()> {
 
             pa_table.insert((writing, reading), accents);
         }
+        println!("Pitch Accent entries: {}", pa_table.len());
     }
-    println!("JA Accent entries: {}", pa_table.len());
 
     // Open and parse the Kobo Japanese-Japanese dictionary.
     let mut kobo_table: HashMap<(String, String), Vec<kobo_ja::Entry>> = HashMap::new(); // (DictKey, Kana) -> EntryList
@@ -120,8 +120,8 @@ fn main() -> io::Result<()> {
                 .or_insert(Vec::new());
             entry_list.push(entry);
         }
+        println!("Kobo dictionary entries: {}", kobo_table.len());
     }
-    println!("Kobo dictionary entries: {}", kobo_table.len());
 
     //----------------------------------------------------------------
     // Generate the new dictionary entries.
@@ -136,9 +136,6 @@ fn main() -> io::Result<()> {
                 .get(&(kanji.clone(), kana.clone()))
                 .map(|a| a.as_slice())
                 .unwrap_or(&[]);
-            if kana == "スッカリ" {
-                println!("{} {} {:?}", kanji, kana, pitch_accent);
-            }
 
             // Add header and definition to the entry text.
             entry_text.push_str(&generate_header_text(
