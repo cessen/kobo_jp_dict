@@ -214,13 +214,13 @@ fn generate_header_text(
     text.push_str("】");
 
     const WORD_TYPE_START: &'static str =
-        " <span style=\"font-size: 0.8em; font-style: italic; margin-left: 0;\">";
+        " <span style=\"font-size: 0.8em; font-style: italic; margin-left: 0; white-space: nowrap;\">";
     const WORD_TYPE_END: &'static str = "</span>";
     match jm_entry.pos {
         PartOfSpeech::Verb => {
             use ConjugationClass::*;
             let conj_type_text = match jm_entry.conj {
-                IchidanVerb => ",&nbsp;ichidan",
+                IchidanVerb => ", ichidan",
 
                 GodanVerbU
                 | GodanVerbTsu
@@ -230,7 +230,7 @@ fn generate_header_text(
                 | GodanVerbNu
                 | GodanVerbBu
                 | GodanVerbMu
-                | GodanVerbSu => ",&nbsp;godan",
+                | GodanVerbSu => ", godan",
 
                 SuruVerb
                 | SuruVerbSC
@@ -240,7 +240,7 @@ fn generate_header_text(
                 | AruVerb
                 | SharuVerb
                 | GodanVerbHu // Doesn't exist in modern Japanese, so we're calling it irregular.
-                | IrregularVerb => ",&nbsp;irregular",
+                | IrregularVerb => ", irregular",
 
                 _ => "",
             };
@@ -250,16 +250,16 @@ fn generate_header_text(
             let transitive_text = match (transitive, intransitive) {
                 (true, false) => {
                     if use_move_terms {
-                        ",&nbsp;other-move"
+                        ", other-move"
                     } else {
-                        ",&nbsp;transitive"
+                        ", transitive"
                     }
                 }
                 (false, true) => {
                     if use_move_terms {
-                        ",&nbsp;self-move"
+                        ", self-move"
                     } else {
-                        ",&nbsp;intransitive"
+                        ", intransitive"
                     }
                 }
                 _ => "",
@@ -276,7 +276,7 @@ fn generate_header_text(
             let adjective_type_text = match jm_entry.conj {
                 IAdjective => "i-adjective",
 
-                IrregularIAdjective => "i-adjective,&nbsp;irregular",
+                IrregularIAdjective => "i-adjective, irregular",
 
                 _ => "adjective",
             };
