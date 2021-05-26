@@ -1,5 +1,5 @@
 [package]
-name = "kobo_dict"
+name = "kobo_jp_dict"
 version = "0.1.0"
 authors = ["Nathan Vegdahl <cessen@cessen.com>"]
 edition = "2018"
