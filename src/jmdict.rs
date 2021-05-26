@@ -14,6 +14,8 @@ pub struct Parser<R: BufRead> {
     xml_parser: quick_xml::Reader<R>,
     buf: Vec<u8>,
     cur_entry: WordEntry,
+    kanji_priorities: Vec<String>,
+    kana_priorities: Vec<String>,
     cur_xml_elem: Elem,
 }
 
@@ -23,6 +25,8 @@ impl<R: BufRead> Parser<R> {
             xml_parser: quick_xml::Reader::from_reader(reader),
             buf: Vec::new(),
             cur_entry: WordEntry::new(),
+            kanji_priorities: Vec::new(),
+            kana_priorities: Vec::new(),
             cur_xml_elem: Elem::None,
         }
     }
@@ -37,11 +41,16 @@ pub struct WordEntry {
     pub pos: PartOfSpeech,
     pub usually_kana: bool, // When true, indicates that the word is usually written in kana alone.
 
-    // List of tags found, in the format "parent_element:entity".
+    // A very rough priority ranking indicating the commonness of the word.
+    // A lower numerical value indicates a more common word.
+    pub priority: u32,
+
+    // Set of tags found, in the format "parent_element:entity".
     // For example, if "<pos>&conj;</pos>" is found in the xml, then there
     // will be an entry "pos:conj" in this set.
     // This can give more detailed information about the word than the
     // filtered and processed struct fields above, when needed.
+    // See the JMDict XML file for details about possible tags.
     pub tags: HashSet<String>,
 }
 
@@ -54,6 +63,7 @@ impl WordEntry {
             conj: ConjugationClass::Other,
             pos: PartOfSpeech::Unknown,
             usually_kana: false,
+            priority: 100,
             tags: HashSet::new(),
         }
     }
@@ -204,7 +214,28 @@ impl<R: BufRead> Iterator for Parser<R> {
                             self.cur_entry.definitions.pop();
                         }
 
+                        // Calculate word priority.
+                        let priorities = if self.cur_entry.usually_kana {
+                            &self.kana_priorities
+                        } else {
+                            &self.kanji_priorities
+                        };
+                        for p_text in priorities.iter() {
+                            let p = if p_text.starts_with("nf") {
+                                (&p_text[2..]).parse::<u32>().unwrap().saturating_sub(1)
+                            } else {
+                                match p_text.as_str() {
+                                    "news1" | "ichi1" | "gai1" => 12,
+                                    "news2" | "ichi2" | "gai2" => 36,
+                                    _ => 1000,
+                                }
+                            };
+                            self.cur_entry.priority = self.cur_entry.priority.min(p);
+                        }
+
                         // Reset for next entry, and return the `WordEntry`.
+                        self.kanji_priorities.clear();
+                        self.kana_priorities.clear();
                         return Some(std::mem::replace(&mut self.cur_entry, WordEntry::new()));
                     }
                 }
@@ -238,7 +269,12 @@ impl<R: BufRead> Iterator for Parser<R> {
                         Elem::Field => {
                             add_tag(&mut self.cur_entry, "field", &text);
                         }
-                        Elem::WritingPriority | Elem::ReadingPriority => {}
+                        Elem::WritingPriority => {
+                            self.kanji_priorities.push(text.trim().into());
+                        }
+                        Elem::ReadingPriority => {
+                            self.kana_priorities.push(text.trim().into());
+                        }
                         Elem::Pos => {
                             add_tag(&mut self.cur_entry, "pos", &text);
 

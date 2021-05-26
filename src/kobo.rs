@@ -10,6 +10,10 @@ use unicode_categories::UnicodeCategories;
 pub struct Entry {
     pub keys: Vec<String>,
     pub definition: String,
+
+    // A very rough priority ranking indicating the commonness of the word.
+    // A lower numerical value indicates a more common word.
+    pub priority: u32,
 }
 
 pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Result<()> {
@@ -73,16 +77,21 @@ pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Resul
     //----------------------------------------------------------------
     // Duplicate the entries into a prefix list.
 
-    // prefix -> Vec<(key, definition text)>
-    let mut prefix_entries: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    // prefix -> Vec<(key, definition text, priority)>
+    let mut prefix_entries: HashMap<String, Vec<(String, String, u32)>> = HashMap::new();
 
     for entry in entries.iter() {
         for key in entry.keys.iter() {
             let prefix = dictionary_prefix(key);
 
             let a = prefix_entries.entry(prefix).or_insert(Vec::new());
-            a.push((key.clone(), entry.definition.clone()));
+            a.push((key.clone(), entry.definition.clone(), entry.priority));
         }
+    }
+    // Sort by priority, so more common words show up earlier
+    // in search results.
+    for entries in prefix_entries.values_mut() {
+        entries.sort_by_key(|a| (a.2, a.0.len()));
     }
 
     //----------------------------------------------------------------
@@ -106,7 +115,7 @@ pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Resul
         // Generate the html.
         let mut html = String::new();
         html.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?><html>");
-        for (key, definition) in prefix_entry_list.iter() {
+        for (key, definition, _) in prefix_entry_list.iter() {
             html.push_str(&format!(
                 "<w><p><a name=\"{}\" />{}</p></w>",
                 key, definition

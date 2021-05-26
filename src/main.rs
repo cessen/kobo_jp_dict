@@ -91,14 +91,21 @@ fn main() -> io::Result<()> {
         let reader = BufReader::new(File::open(path)?);
         for line in reader.lines() {
             let line = line.unwrap_or_else(|_| "".into());
-            let parts: Vec<_> = line.split("\t").collect();
+            let parts: Vec<_> = line.split("\t").map(|a| a.trim()).collect();
             assert_eq!(parts.len(), 3);
             let accents: Vec<u32> = parts[2]
                 .split(|ch: char| !ch.is_digit(10))
                 .filter(|s| !s.is_empty())
                 .map(|a| a.parse::<u32>().unwrap())
                 .collect();
-            pa_table.insert((parts[0].into(), hiragana_to_katakana(parts[1])), accents);
+
+            let (writing, reading) = if is_all_kana(parts[0]) && parts[1].is_empty() {
+                (parts[0].into(), hiragana_to_katakana(parts[0]))
+            } else {
+                (parts[0].into(), hiragana_to_katakana(parts[1]))
+            };
+
+            pa_table.insert((writing, reading), accents);
         }
     }
     println!("JA Accent entries: {}", pa_table.len());
@@ -124,9 +131,9 @@ fn main() -> io::Result<()> {
             let mut entry_text: String = "<hr/>".into();
 
             // Only match to other dictionaries if we actually have
-            // a kanji writing for the word.  Matching on kana would
-            // introduce too many false positive matches.
-            let (pitch_accent, kobo_jp_entries) = if !kanji.is_empty() && !is_all_kana(kanji) {
+            // a non-hiragana writing for the word.  Matching on hiragana
+            // introduces too many false positive matches.
+            let (pitch_accent, kobo_jp_entries) = if !kanji.is_empty() && !is_all_hiragana(kanji) {
                 (
                     pa_table.get(&(kanji.clone(), kana.clone())),
                     kobo_table
@@ -152,6 +159,7 @@ fn main() -> io::Result<()> {
             entries.push(kobo::Entry {
                 keys: generate_lookup_keys(jm_entry),
                 definition: entry_text,
+                priority: jm_entry.priority,
             });
         }
     }
@@ -345,7 +353,11 @@ fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<String> {
     let mut forms: Vec<_> = jm_entry
         .writings
         .iter()
-        .chain(jm_entry.readings.iter())
+        .chain(if jm_entry.usually_kana {
+            jm_entry.readings.iter()
+        } else {
+            (&jm_entry.readings[0..1]).iter()
+        })
         .collect();
     forms.sort();
     forms.dedup();
@@ -492,6 +504,16 @@ fn is_kana(ch: char) -> bool {
     || (c >= 0x30fd && c <= 0x30fe) // Iterating marks.
 }
 
+fn is_hiragana(ch: char) -> bool {
+    let c = ch as u32;
+
+    (c >= 0x3041 && c <= 0x3096) // Hiragana.
+    || (c >= 0x3099 && c <= 0x309c) // Combining marks.
+    || (c >= 0x309d && c <= 0x309e) // Iterating marks.
+    || c == 0x30fc // Prolonged sound mark.
+    || (c >= 0x30fd && c <= 0x30fe) // Iterating marks.
+}
+
 /// Removes all non-kana text from a `&str`, and returns
 /// a `String` of the result.
 fn strip_non_kana(text: &str) -> String {
@@ -540,4 +562,12 @@ fn is_all_kana(text: &str) -> bool {
         all_kana &= is_kana(ch);
     }
     all_kana
+}
+
+fn is_all_hiragana(text: &str) -> bool {
+    let mut all_hiragana = true;
+    for ch in text.chars() {
+        all_hiragana &= is_hiragana(ch);
+    }
+    all_hiragana
 }
