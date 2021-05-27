@@ -7,10 +7,10 @@ It requires a [JMDict](https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Diction
 
 ## Example usage
 
-Basic usage looks like this:
+Typical usage looks like this:
 
 ```
-kobo_dict -j JMdict_e.xml -p accent.tsv dicthtml-ja-en.zip
+kobo_jp_dict -j JMdict_e.xml -p accent.tsv dicthtml-ja-en.zip
 ```
 
 This takes `JMdict_e.xml` and the pitch-accent file `accent.tsv` as input, and produces the Kobo dictionary file `dicthtml-ja-en.zip`.
