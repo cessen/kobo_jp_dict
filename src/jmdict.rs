@@ -214,6 +214,14 @@ impl<R: BufRead> Iterator for Parser<R> {
                             self.cur_entry.definitions.pop();
                         }
 
+                        // If there are no kanji writings, make sure it's
+                        // marked as "usually kana", because JMDict forgets
+                        // this sometimes (or possibly just assumes it's
+                        // implicit).
+                        if self.cur_entry.writings.is_empty() {
+                            self.cur_entry.usually_kana = true;
+                        }
+
                         // Calculate word priority.
                         let priorities = if self.cur_entry.usually_kana {
                             &self.kana_priorities

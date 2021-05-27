@@ -279,13 +279,6 @@ fn generate_header_text(
             ));
         }
 
-        PartOfSpeech::Expression => {
-            text.push_str(&format!(
-                "{}{}{}",
-                WORD_TYPE_START, "expression", WORD_TYPE_END
-            ));
-        }
-
         _ => {}
     }
 
