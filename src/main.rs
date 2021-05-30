@@ -10,6 +10,7 @@ use std::io::BufReader;
 mod jmdict;
 mod kobo;
 mod kobo_ja;
+mod yomichan;
 
 use jmdict::{ConjugationClass, PartOfSpeech, WordEntry};
 
@@ -46,6 +47,15 @@ fn main() -> io::Result<()> {
                 .help("Path to the Kobo Japanese-Japanese dictionary file if available.  Will add native Japanese definitions to matching entries")
                 .value_name("PATH")
                 .takes_value(true),
+        )
+        .arg(
+            clap::Arg::with_name("yomichan_dict")
+                .short("y")
+                .long("yomichan")
+                .help("Path to a zipped Yomichan dictionary.  Will add either additional definitions to existing entries or completely new entries, depending the dictionary")
+                .value_name("PATH")
+                .takes_value(true)
+                .multiple(true),
         )
         .arg(
             clap::Arg::with_name("katakana_pronunciation")
@@ -121,6 +131,13 @@ fn main() -> io::Result<()> {
             entry_list.push(entry);
         }
         println!("Kobo dictionary entries: {}", kobo_table.len());
+    }
+
+    // Open and parse Yomichan dictionaries.
+    if let Some(paths) = matches.values_of("yomichan_dict") {
+        for path in paths {
+            yomichan::parse(std::path::Path::new(path), true).unwrap();
+        }
     }
 
     //----------------------------------------------------------------
