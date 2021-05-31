@@ -35,17 +35,15 @@ pub enum InflectionType {
 // Entry type for kanji.
 #[derive(Clone, Debug)]
 pub struct KanjiEntry {
-    pub kanji: char,
-    pub readings: Vec<String>,
+    pub kanji: String,
+    pub onyomi: Vec<String>,
+    pub kunyomi: Vec<String>,
     pub meanings: Vec<String>,
 }
 
 //----------------------------------------------------------------
 
-pub fn parse(
-    path: &Path,
-    print_progress: bool,
-) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Vec<KanjiEntry>)> // (words, names, kanji)
+pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Vec<KanjiEntry>)> // (words, names, kanji)
 {
     let mut zip_in = zip::ZipArchive::new(BufReader::new(File::open(path)?))?;
 
@@ -92,10 +90,6 @@ pub fn parse(
     let mut name_entries = Vec::new();
     let mut kanji_entries = Vec::new();
     for i in 0..zip_in.len() {
-        if print_progress {
-            print!("\rLoading: {}/{}", i + 1, zip_in.len());
-        }
-
         // Open the file.
         let mut f = zip_in.by_index(i).unwrap();
         let filename: String = std::str::from_utf8(f.name_raw()).unwrap().into();
@@ -114,17 +108,22 @@ pub fn parse(
         if filename.starts_with("term_bank_") {
             // It's a term bank.
             for item in json.as_array().unwrap().iter() {
+                let mut tags: Vec<String> = item
+                    .get(2)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .split(" ")
+                    .chain(item.get(7).unwrap().as_str().unwrap().split(" "))
+                    .map(|s| s.trim().into())
+                    .filter(|s: &String| !s.is_empty())
+                    .collect();
+                tags.sort();
+                tags.dedup();
+
                 let entry = TermEntry {
-                    writing: item.get(0).unwrap().as_str().unwrap().into(),
-                    reading: item.get(1).unwrap().as_str().unwrap().into(),
-                    tags: item
-                        .get(2)
-                        .unwrap()
-                        .as_str()
-                        .unwrap()
-                        .split(" ")
-                        .map(|s| s.into())
-                        .collect(),
+                    writing: item.get(0).unwrap().as_str().unwrap().trim().into(),
+                    reading: item.get(1).unwrap().as_str().unwrap().trim().into(),
                     infl: match item.get(3).unwrap().as_str().unwrap().trim() {
                         "v1" => InflectionType::VerbIchidan,
                         "v5" => InflectionType::VerbGodan,
@@ -151,6 +150,7 @@ pub fn parse(
                         })
                         .collect::<Vec<&str>>()
                         .join("; ")],
+                    tags: tags,
                 };
 
                 if is_name_dict {
@@ -161,10 +161,38 @@ pub fn parse(
             }
         } else if filename.starts_with("kanji_bank_") {
             // It's a kanji bank.
-            for item in json.as_array().unwrap().iter() {}
+            for item in json.as_array().unwrap().iter() {
+                let entry = KanjiEntry {
+                    kanji: item.get(0).unwrap().as_str().unwrap().trim().into(),
+                    onyomi: item
+                        .get(1)
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .split(" ")
+                        .map(|s| s.trim().into())
+                        .collect(),
+                    kunyomi: item
+                        .get(2)
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .split(" ")
+                        .map(|s| s.trim().into())
+                        .collect(),
+                    meanings: item
+                        .get(4)
+                        .unwrap()
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|s| s.as_str().unwrap().trim().into())
+                        .collect(),
+                };
+                kanji_entries.push(entry);
+            }
         }
     }
-    println!();
 
     Ok((term_entries, name_entries, kanji_entries))
 }
