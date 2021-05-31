@@ -76,6 +76,8 @@ fn main() -> io::Result<()> {
     //----------------------------------------------------------------
     // Read in all the files.
 
+    println!("Loading dictionaries...");
+
     // Open and parse the JMDict file.
     let mut jm_table: HashMap<(String, String), Vec<WordEntry>> = HashMap::new(); // (Kanji, Kana)
     if let Some(path) = matches.value_of("jmdict") {
@@ -92,7 +94,7 @@ fn main() -> io::Result<()> {
             let e = jm_table.entry((writing, reading)).or_insert(Vec::new());
             e.push(entry);
         }
-        println!("JMDict entries: {}", jm_table.len());
+        println!("    JMDict entries: {}", jm_table.len());
     }
 
     // Open and parse the pitch accent file.
@@ -117,7 +119,7 @@ fn main() -> io::Result<()> {
 
             pa_table.insert((writing, reading), accents);
         }
-        println!("Pitch Accent entries: {}", pa_table.len());
+        println!("    Pitch Accent entries: {}", pa_table.len());
     }
 
     // Open and parse the Kobo Japanese-Japanese dictionary.
@@ -130,13 +132,19 @@ fn main() -> io::Result<()> {
                 .or_insert(Vec::new());
             entry_list.push(entry);
         }
-        println!("Kobo dictionary entries: {}", kobo_table.len());
+        println!("    Kobo dictionary entries: {}", kobo_table.len());
     }
 
     // Open and parse Yomichan dictionaries.
     if let Some(paths) = matches.values_of("yomichan_dict") {
         for path in paths {
-            yomichan::parse(std::path::Path::new(path), true).unwrap();
+            let (word_entries, name_entries, kanji_entries) =
+                yomichan::parse(std::path::Path::new(path)).unwrap();
+            println!(
+                "    {} entries: {}",
+                path,
+                word_entries.len() + name_entries.len() + kanji_entries.len()
+            );
         }
     }
 
