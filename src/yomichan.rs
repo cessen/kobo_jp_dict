@@ -7,8 +7,6 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::{hiragana_to_katakana, strip_non_kana};
-
 //----------------------------------------------------------------
 // Entry type for words.
 #[derive(Clone, Debug)]
