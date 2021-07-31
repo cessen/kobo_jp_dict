@@ -141,10 +141,13 @@ fn main() -> io::Result<()> {
     let mut yomi_kanji_table: HashMap<String, Vec<yomichan::KanjiEntry>> = HashMap::new(); // Kanji
     if let Some(paths) = matches.values_of("yomichan_dict") {
         for path in paths {
+            let mut entry_count = 0usize;
+
             let (mut word_entries, mut name_entries, mut kanji_entries) =
                 yomichan::parse(std::path::Path::new(path)).unwrap();
 
             // Put all of the word entries into the terms table.
+            entry_count += word_entries.len();
             for entry in word_entries.drain(..) {
                 let reading = strip_non_kana(&hiragana_to_katakana(entry.reading.trim()));
                 let writing: String = entry.writing.trim().into();
@@ -162,6 +165,7 @@ fn main() -> io::Result<()> {
             }
 
             // Put all of the name entries into the names table.
+            entry_count += name_entries.len();
             for entry in name_entries.drain(..) {
                 let reading = strip_non_kana(&hiragana_to_katakana(entry.reading.trim()));
                 let writing: String = entry.writing.trim().into();
@@ -179,6 +183,7 @@ fn main() -> io::Result<()> {
             }
 
             // Put all of the kanji entries into the kanji table.
+            entry_count += kanji_entries.len();
             for entry in kanji_entries.drain(..) {
                 let entry_list = yomi_kanji_table
                     .entry(entry.kanji.clone())
@@ -186,11 +191,7 @@ fn main() -> io::Result<()> {
                 entry_list.push(entry);
             }
 
-            println!(
-                "    {} entries: {}",
-                path,
-                word_entries.len() + name_entries.len() + kanji_entries.len()
-            );
+            println!("    {} entries: {}", path, entry_count);
         }
     }
 
