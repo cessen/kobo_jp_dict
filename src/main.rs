@@ -136,10 +136,56 @@ fn main() -> io::Result<()> {
     }
 
     // Open and parse Yomichan dictionaries.
+    let mut yomi_term_table: HashMap<(String, String), Vec<yomichan::TermEntry>> = HashMap::new(); // (Kanji, Kana)
+    let mut yomi_name_table: HashMap<(String, String), Vec<yomichan::TermEntry>> = HashMap::new(); // (Kanji, Kana)
+    let mut yomi_kanji_table: HashMap<String, Vec<yomichan::KanjiEntry>> = HashMap::new(); // Kanji
     if let Some(paths) = matches.values_of("yomichan_dict") {
         for path in paths {
-            let (word_entries, name_entries, kanji_entries) =
+            let (mut word_entries, mut name_entries, mut kanji_entries) =
                 yomichan::parse(std::path::Path::new(path)).unwrap();
+
+            // Put all of the word entries into the terms table.
+            for entry in word_entries.drain(..) {
+                let reading = strip_non_kana(&hiragana_to_katakana(entry.reading.trim()));
+                let writing: String = entry.writing.trim().into();
+                if writing.is_empty() {
+                    let entry_list = yomi_term_table
+                        .entry((entry.reading.trim().into(), reading))
+                        .or_insert(Vec::new());
+                    entry_list.push(entry);
+                } else {
+                    let entry_list = yomi_term_table
+                        .entry((writing, reading))
+                        .or_insert(Vec::new());
+                    entry_list.push(entry);
+                }
+            }
+
+            // Put all of the name entries into the names table.
+            for entry in name_entries.drain(..) {
+                let reading = strip_non_kana(&hiragana_to_katakana(entry.reading.trim()));
+                let writing: String = entry.writing.trim().into();
+                if writing.is_empty() {
+                    let entry_list = yomi_name_table
+                        .entry((entry.reading.trim().into(), reading))
+                        .or_insert(Vec::new());
+                    entry_list.push(entry);
+                } else {
+                    let entry_list = yomi_name_table
+                        .entry((writing, reading))
+                        .or_insert(Vec::new());
+                    entry_list.push(entry);
+                }
+            }
+
+            // Put all of the kanji entries into the kanji table.
+            for entry in kanji_entries.drain(..) {
+                let entry_list = yomi_kanji_table
+                    .entry(entry.kanji.clone())
+                    .or_insert(Vec::new());
+                entry_list.push(entry);
+            }
+
             println!(
                 "    {} entries: {}",
                 path,
@@ -151,12 +197,18 @@ fn main() -> io::Result<()> {
     //----------------------------------------------------------------
     // Generate the new dictionary entries.
     let mut entries = Vec::new();
+
+    // Term entries.
     for ((kanji, kana), item) in jm_table.iter() {
         for jm_entry in item.iter() {
             let mut entry_text: String = "<hr/>".into();
 
             // Find matching entries in other source dictionaries.
             let pitch_accent = pa_table.get(&(kanji.clone(), kana.clone()));
+            let yomi_term_entries = yomi_term_table
+                .get(&(kanji.clone(), kana.clone()))
+                .map(|a| a.as_slice())
+                .unwrap_or(&[]);
             let kobo_jp_entries = kobo_table
                 .get(&(kanji.clone(), kana.clone()))
                 .map(|a| a.as_slice())
@@ -170,7 +222,11 @@ fn main() -> io::Result<()> {
                 pitch_accent,
                 &jm_entry,
             ));
-            entry_text.push_str(&generate_definition_text(&jm_entry, kobo_jp_entries));
+            entry_text.push_str(&generate_definition_text(
+                &jm_entry,
+                yomi_term_entries,
+                kobo_jp_entries,
+            ));
 
             // Add to the entry list.
             entries.push(kobo::Entry {
@@ -179,6 +235,13 @@ fn main() -> io::Result<()> {
             });
         }
     }
+
+    // Name entries.
+    // TODO
+
+    // Kanji entries.
+    // TODO
+
     entries.sort_by_key(|a| a.keys[0].0.len());
 
     //----------------------------------------------------------------
@@ -311,7 +374,11 @@ fn generate_header_text(
 }
 
 /// Generate English definition text from the given JMDict entry.
-fn generate_definition_text(jm_entry: &WordEntry, kobo_entries: &[kobo_ja::Entry]) -> String {
+fn generate_definition_text(
+    jm_entry: &WordEntry,
+    yomi_entries: &[yomichan::TermEntry],
+    kobo_entries: &[kobo_ja::Entry],
+) -> String {
     let mut text = String::new();
 
     text.push_str("<p style=\"margin-top: 0.7em; margin-bottom: 0.7em;\">");
@@ -319,6 +386,13 @@ fn generate_definition_text(jm_entry: &WordEntry, kobo_entries: &[kobo_ja::Entry
         text.push_str(&format!("<b>{}.</b> {}<br/>", i + 1, def));
     }
     text.push_str("</p>");
+
+    for entry in yomi_entries.iter() {
+        for (i, def) in entry.definitions.iter().enumerate() {
+            text.push_str(&format!("<b>{}.</b> {}<br/>", i + 1, def));
+        }
+        text.push_str("</p>");
+    }
 
     for kobo_entry in kobo_entries.iter().take(1) {
         text.push_str(&kobo_entry.definition);
