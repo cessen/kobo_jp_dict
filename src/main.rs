@@ -241,7 +241,15 @@ fn main() -> io::Result<()> {
     // TODO
 
     // Kanji entries.
-    // TODO
+    for (kanji, item) in yomi_kanji_table.iter() {
+        let mut entry_text: String = "<hr/>".into();
+        entry_text.push_str(&generate_kanji_entry_text(&item[0]));
+
+        entries.push(kobo::Entry {
+            keys: vec![(kanji.clone(), 0)],
+            definition: entry_text,
+        });
+    }
 
     entries.sort_by_key(|a| a.keys[0].0.len());
 
@@ -569,6 +577,45 @@ fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<(String, u32)> {
     keys.sort_by_key(|a| (a.1, a.0.len(), a.0.clone()));
     keys.dedup();
     keys
+}
+
+fn generate_kanji_entry_text(entry: &yomichan::KanjiEntry) -> String {
+    let mut text = String::new();
+
+    text.push_str("<p style=\"margin-left: 2.5em; margin-bottom: 0.7em; text-indent: -2.5em;\"><span style=\"font-size: 1.5em;\">");
+    text.push_str(&entry.kanji);
+    if !entry.meanings.is_empty() {
+        text.push_str("</span>　");
+        for meaning in entry.meanings.iter() {
+            text.push_str(meaning);
+            text.push_str(", ");
+        }
+        text.pop();
+        text.pop();
+    }
+    text.push_str("</p>");
+
+    if !entry.onyomi.is_empty() {
+        text.push_str("<p style=\"margin-left: 2.5em; text-indent: -2.5em;\">音:　");
+        for onyomi in entry.onyomi.iter() {
+            text.push_str(onyomi);
+            text.push_str("／");
+        }
+        text.pop();
+        text.push_str("</p>");
+    }
+
+    if !entry.kunyomi.is_empty() {
+        text.push_str("<p style=\"margin-left: 2.5em; text-indent: -2.5em;\">訓:　");
+        for kunyomi in entry.kunyomi.iter() {
+            text.push_str(kunyomi);
+            text.push_str("／");
+        }
+        text.pop();
+        text.push_str("</p>");
+    }
+
+    text
 }
 
 /// Panics if the bytes aren't utf8.
