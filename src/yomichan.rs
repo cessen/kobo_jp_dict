@@ -169,6 +169,7 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                         .unwrap()
                         .split(" ")
                         .map(|s| s.trim().into())
+                        .filter(|s: &String| !s.is_empty())
                         .collect(),
                     kunyomi: item
                         .get(2)
@@ -177,6 +178,7 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                         .unwrap()
                         .split(" ")
                         .map(|s| s.trim().into())
+                        .filter(|s: &String| !s.is_empty())
                         .collect(),
                     meanings: item
                         .get(4)
@@ -185,6 +187,7 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                         .unwrap()
                         .iter()
                         .map(|s| s.as_str().unwrap().trim().into())
+                        .filter(|s: &String| !s.is_empty())
                         .collect(),
                 };
                 kanji_entries.push(entry);
