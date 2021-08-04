@@ -1,5 +1,6 @@
 //! Parses the Kobo's Japanse-Japanese dictionary.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -9,8 +10,9 @@ use serde_json::Value;
 
 //----------------------------------------------------------------
 // Entry type for words.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct TermEntry {
+    pub dict_name: String,
     pub writing: String,
     pub reading: String,
     pub definitions: Vec<String>,
@@ -19,7 +21,7 @@ pub struct TermEntry {
     pub commonness: i32, // Higher is more common.
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum InflectionType {
     VerbIchidan,
     VerbGodan,
@@ -33,6 +35,7 @@ pub enum InflectionType {
 // Entry type for kanji.
 #[derive(Clone, Debug)]
 pub struct KanjiEntry {
+    pub dict_name: String,
     pub kanji: String,
     pub onyomi: Vec<String>,
     pub kunyomi: Vec<String>,
@@ -84,7 +87,7 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
     };
 
     // Loop through the bank-json files in the zip and build our entry list(s).
-    let mut term_entries = Vec::new();
+    let mut term_entries: HashMap<_, TermEntry> = HashMap::new();
     let mut name_entries = Vec::new();
     let mut kanji_entries = Vec::new();
     for i in 0..zip_in.len() {
@@ -119,7 +122,8 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                 tags.sort();
                 tags.dedup();
 
-                let entry = TermEntry {
+                let mut entry = TermEntry {
+                    dict_name: dictionary_title.clone(),
                     writing: item.get(0).unwrap().as_str().unwrap().trim().into(),
                     reading: item.get(1).unwrap().as_str().unwrap().trim().into(),
                     infl: match item.get(3).unwrap().as_str().unwrap().trim() {
@@ -154,13 +158,35 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                 if is_name_dict {
                     name_entries.push(entry);
                 } else {
-                    term_entries.push(entry);
+                    // We do some extra work here to merge the definitions from
+                    // multiple entries for the same word.
+                    let key = (entry.writing.clone(), entry.reading.clone());
+                    let e = term_entries.entry(key).or_insert(TermEntry {
+                        dict_name: dictionary_title.clone(),
+                        writing: entry.writing.clone(),
+                        reading: entry.reading.clone(),
+                        definitions: Vec::new(),
+                        infl: entry.infl,
+                        tags: Vec::new(),
+                        commonness: entry.commonness,
+                    });
+                    e.definitions.extend(entry.definitions.drain(..).map(|d| {
+                        if let Some(idx) = d.find("】") {
+                            (&d[(idx + "】".len())..]).into()
+                        } else {
+                            d
+                        }
+                    }));
+                    e.tags.extend(entry.tags.drain(..));
+                    e.tags.sort_unstable();
+                    e.tags.dedup();
                 }
             }
         } else if filename.starts_with("kanji_bank_") {
             // It's a kanji bank.
             for item in json.as_array().unwrap().iter() {
                 let entry = KanjiEntry {
+                    dict_name: dictionary_title.clone(),
                     kanji: item.get(0).unwrap().as_str().unwrap().trim().into(),
                     onyomi: item
                         .get(1)
@@ -194,6 +220,10 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
             }
         }
     }
+
+    // Convert the term entries into a simple `Vec`.
+    let mut term_entries: Vec<TermEntry> = term_entries.drain().map(|kv| kv.1).collect();
+    term_entries.sort_unstable();
 
     Ok((term_entries, name_entries, kanji_entries))
 }

@@ -390,17 +390,18 @@ fn generate_definition_text(
 ) -> String {
     let mut text = String::new();
 
-    text.push_str("<p style=\"margin-top: 0.7em; margin-bottom: 0.7em;\">");
-    for (i, def) in jm_entry.definitions.iter().enumerate() {
-        text.push_str(&format!("<b>{}.</b> {}<br/>", i + 1, def));
+    text.push_str("<p style=\"margin-top: 0.7em; margin-bottom: 0.7em;\"><ol>");
+    for def in jm_entry.definitions.iter() {
+        text.push_str(&format!("<li>{}</li>", def));
     }
-    text.push_str("</p>");
+    text.push_str("</ol></p>");
 
     for entry in yomi_entries.iter() {
-        for (i, def) in entry.definitions.iter().enumerate() {
-            text.push_str(&format!("<b>{}.</b> {}<br/>", i + 1, def));
+        text.push_str(&format!("<p>{}:<br/><ol>", entry.dict_name));
+        for def in entry.definitions.iter() {
+            text.push_str(&format!("<li>{}</li>", def));
         }
-        text.push_str("</p>");
+        text.push_str("</ol></p>");
     }
 
     for kobo_entry in kobo_entries.iter().take(1) {
