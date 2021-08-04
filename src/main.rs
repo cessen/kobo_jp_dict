@@ -246,7 +246,7 @@ fn main() -> io::Result<()> {
                 item,
             ));
             entries.push(kobo::Entry {
-                keys: vec![(writing.clone(), 9999)],
+                keys: vec![(writing.clone(), std::u32::MAX)], // Always sort names last.
                 definition: entry_text,
             });
         }
