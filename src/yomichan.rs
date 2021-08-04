@@ -161,7 +161,7 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                     // We do some extra work here to merge the definitions from
                     // multiple entries for the same word.
                     let key = (entry.writing.clone(), entry.reading.clone());
-                    let e = term_entries.entry(key).or_insert(TermEntry {
+                    let e = term_entries.entry(key.clone()).or_insert(TermEntry {
                         dict_name: dictionary_title.clone(),
                         writing: entry.writing.clone(),
                         reading: entry.reading.clone(),
@@ -170,13 +170,34 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                         tags: Vec::new(),
                         commonness: entry.commonness,
                     });
-                    e.definitions.extend(entry.definitions.drain(..).map(|d| {
-                        if let Some(idx) = d.find("】") {
-                            (&d[(idx + "】".len())..]).into()
-                        } else {
-                            d
-                        }
-                    }));
+                    e.definitions.extend(
+                        entry
+                            .definitions
+                            .drain(..)
+                            .filter(|d| {
+                                // Attempt to get rid of English-Japanese definitions from
+                                // native Japanese dictionaries.
+                                !d.contains("英和") || key.0.contains("英和")
+                            })
+                            .map(|d| {
+                                // Attempt to get rid of entry headers in the definitions.  They are
+                                // annoyingly present in most of the native Japanese dictionaries
+                                // converted to Yomichan format.
+                                //
+                                // Our heuristic is that if there's multiple lines, and the first
+                                // line contains the Japanese word itself, then the first line is
+                                // probably a header and we can drop it.
+                                let header_indicator_idx =
+                                    d.find(&key.0).or_else(|| d.find(&key.1));
+                                let first_line_break_idx = d.find("\n");
+                                match (header_indicator_idx, first_line_break_idx) {
+                                    (Some(a), Some(b)) if a < b && (b + 1) < d.len() => {
+                                        (&d[(b + 1)..]).into()
+                                    }
+                                    _ => d,
+                                }
+                            }),
+                    );
                     e.tags.extend(entry.tags.drain(..));
                     e.tags.sort_unstable();
                     e.tags.dedup();
