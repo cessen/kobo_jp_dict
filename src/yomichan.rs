@@ -1,4 +1,4 @@
-//! Parses the Kobo's Japanse-Japanese dictionary.
+//! Parses Yomichan .zip dictionaries.
 
 use std::collections::HashMap;
 use std::fs::File;
