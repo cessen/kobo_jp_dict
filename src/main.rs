@@ -238,12 +238,24 @@ fn main() -> io::Result<()> {
     }
 
     // Name entries.
-    // TODO
+    for ((writing, _reading), items) in yomi_name_table.iter() {
+        for item in items.iter() {
+            let mut entry_text: String = "<hr/>".into();
+            entry_text.push_str(&generate_name_entry_text(
+                matches.is_present("katakana_pronunciation"),
+                item,
+            ));
+            entries.push(kobo::Entry {
+                keys: vec![(writing.clone(), 9999)],
+                definition: entry_text,
+            });
+        }
+    }
 
     // Kanji entries.
-    for (kanji, item) in yomi_kanji_table.iter() {
+    for (kanji, items) in yomi_kanji_table.iter() {
         let mut entry_text: String = "<hr/>".into();
-        entry_text.push_str(&generate_kanji_entry_text(&item[0]));
+        entry_text.push_str(&generate_kanji_entry_text(&items[0]));
 
         entries.push(kobo::Entry {
             keys: vec![(kanji.clone(), 0)],
@@ -578,6 +590,51 @@ fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<(String, u32)> {
     keys.sort_by_key(|a| (a.1, a.0.len(), a.0.clone()));
     keys.dedup();
     keys
+}
+
+fn generate_name_entry_text(use_katakana: bool, entry: &yomichan::TermEntry) -> String {
+    let mut text = String::new();
+
+    if !entry.reading.trim().is_empty() {
+        text.push_str(&if use_katakana {
+            hiragana_to_katakana(&entry.reading)
+        } else {
+            katakana_to_hiragana(&entry.reading)
+        });
+        text.push_str(" &nbsp;&nbsp;&mdash; ");
+    }
+
+    text.push_str("【");
+    text.push_str(&entry.writing);
+    text.push_str("】");
+
+    const WORD_TYPE_START: &'static str =
+        " <span style=\"font-size: 0.8em; font-style: italic; margin-left: 0; white-space: nowrap;\">";
+    const WORD_TYPE_END: &'static str = "</span>";
+    text.push_str(WORD_TYPE_START);
+    text.push_str("name");
+    if !entry.tags.is_empty() {
+        text.push_str(": ");
+        for tag in entry.tags.iter() {
+            text.push_str(tag);
+            text.push_str(", ");
+        }
+        text.pop();
+        text.pop();
+    }
+    text.push_str(WORD_TYPE_END);
+
+    if !entry.definitions.is_empty() {
+        text.push_str("<p><ul>");
+        for def in entry.definitions.iter() {
+            text.push_str("<li>");
+            text.push_str(&def);
+            text.push_str("</li>");
+        }
+        text.push_str("</ul></p>");
+    }
+
+    text
 }
 
 fn generate_kanji_entry_text(entry: &yomichan::KanjiEntry) -> String {
