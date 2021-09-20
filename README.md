@@ -15,6 +15,14 @@ kobo_jp_dict -j JMdict_e.xml -p accent.tsv dicthtml-ja-en.zip
 
 This takes `JMdict_e.xml` and the pitch-accent file `accent.tsv` as input, and produces the Kobo dictionary file `dicthtml-ja-en.zip`.
 
+You can also include entries from Yomichan dictionaries using the `-y` flag like so:
+
+```
+kobo_jp_dict -j JMdict_e.xml -p accent.tsv -y yomichan_dictionary_1.zip -y yomichan_dictionary_2.zip dicthtml-ja-en.zip
+```
+
+Note that a JMdict xml file is always required, even when providing yomichan dictionaries.  (This requirement may be lifted in the future.)  Not all Yomichan dictionaries are supported, but at least kanji, name, and most Japanese-Japanese dictionaries should work reasonably well.
+
 
 ## Installing the produced dictionary
 
