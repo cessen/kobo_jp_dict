@@ -20,12 +20,20 @@ pub struct Entry {
 pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Result<()> {
     // Sorted, de-duplicated list of keys.
     let all_keys = {
-        let mut all_keys = Vec::new();
+        let max_priority = entries
+            .iter()
+            .map(|e| &e.keys[..])
+            .flatten()
+            .fold(0u32, |a, b| a.max(b.1));
+        let mut keys = HashMap::new();
         for entry in entries.iter() {
-            all_keys.extend_from_slice(&entry.keys);
+            for entry_key in entry.keys.iter() {
+                let key = keys.entry(entry_key.0.clone()).or_insert(0);
+                *key = (*key).max(max_priority - entry_key.1);
+            }
         }
+        let mut all_keys: Vec<(String, u32)> = keys.drain().collect();
         all_keys.sort_unstable();
-        all_keys.dedup();
 
         all_keys
     };
@@ -37,8 +45,7 @@ pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Resul
     let words_original = {
         let mut words_original = String::new();
         for key in all_keys.iter() {
-            words_original.push_str(&key.0);
-            words_original.push('\n');
+            words_original.push_str(&format!("{}\t{}\n", key.0, key.1));
         }
         words_original
     };
