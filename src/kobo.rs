@@ -1,3 +1,5 @@
+//! Types and functions for building and outputting a Kobo dictionary.
+
 use std::collections::HashMap;
 use std::io::prelude::*;
 use std::io::BufWriter;
@@ -87,10 +89,30 @@ pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Resul
             a.push((key.0.clone(), entry.definition.clone(), key.1));
         }
     }
-    // Sort by priority, so more common words show up earlier
-    // in search results.
+
     for entries in prefix_entries.values_mut() {
-        entries.sort_by_key(|a| (a.2, a.0.len()));
+        // Sort by key, and then within key by priority, to prep for the
+        // merging below.
+        entries.sort_by_key(|a| (a.0.clone(), a.2));
+
+        // Merge entries with the same key, so that Kobo e-readers show all
+        // matches (their software is weird, and often omits duplicate exact
+        // matches for some reason).
+        let mut i = 0;
+        while i < entries.len() {
+            if i > 0 && entries[i].0 == entries[i - 1].0 {
+                let entry = entries.remove(i);
+                entries[i - 1].1.push_str(&entry.1);
+                entries[i - 1].2 = entries[i - 1].2.min(entry.2);
+            } else {
+                i += 1;
+            }
+        }
+
+        // Sort by priority, and then by inverse entry length, so
+        // higher-priority and more detailed entries hopefully show
+        // up first.
+        entries.sort_by_key(|a| (a.2, -(a.1.len() as isize)));
     }
 
     //----------------------------------------------------------------

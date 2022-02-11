@@ -426,6 +426,17 @@ fn generate_definition_text(
 /// Generates the look-up keys for a JMDict word entry, including
 /// basic conjugations.
 fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<(String, u32)> {
+    // Give verbs and i-adjectives a priority boost, so they show up
+    // earlier in search results.
+    let priority_boost = match jm_entry.conj {
+        IchidanVerb | GodanVerbU | GodanVerbTsu | GodanVerbRu | GodanVerbKu | GodanVerbGu
+        | GodanVerbNu | GodanVerbBu | GodanVerbMu | GodanVerbSu | IkuVerb | KuruVerb | SuruVerb => {
+            4
+        }
+        IAdjective => 2,
+        _ => 1,
+    };
+
     let mut keys = Vec::new();
 
     let mut end_replace_push = |word: &str, trail: &str, endings: &[&str]| {
@@ -435,7 +446,7 @@ fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<(String, u32)> {
             jm_entry.priority / 8
         } else {
             jm_entry.priority
-        };
+        } / priority_boost;
 
         // We include the katakana version for all-hiragana
         // words as well because for some reason that's how Kobo
@@ -478,48 +489,91 @@ fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<(String, u32)> {
     use ConjugationClass::*;
     for word in forms.iter() {
         match jm_entry.conj {
+            // We include the ～あない ending even though it should be covered by ～あ because
+            // there are some entries for exactly ～あない, and they prevent the verb entries
+            // from showing up.
             IchidanVerb => {
-                end_replace_push(word, "る", &["", "られ", "させ", "ろ", "て", "た"]);
+                end_replace_push(word, "る", &["", "ない", "られ", "させ", "ろ", "て", "た"]);
             }
 
             GodanVerbU => {
-                end_replace_push(word, "う", &["わ", "い", "え", "お", "って", "った"]);
+                end_replace_push(
+                    word,
+                    "う",
+                    &["わない", "わ", "い", "え", "お", "って", "った"],
+                );
             }
 
             GodanVerbTsu => {
-                end_replace_push(word, "つ", &["た", "ち", "て", "と", "って", "った"]);
+                end_replace_push(
+                    word,
+                    "つ",
+                    &["たない", "た", "ち", "て", "と", "って", "った"],
+                );
             }
 
             GodanVerbRu => {
-                end_replace_push(word, "ち", &["ら", "り", "れ", "ろ", "って", "った"]);
+                end_replace_push(
+                    word,
+                    "る",
+                    &["らない", "ら", "り", "れ", "ろ", "って", "った"],
+                );
             }
 
             GodanVerbKu => {
-                end_replace_push(word, "く", &["か", "き", "け", "こ", "いて", "いた"]);
+                end_replace_push(
+                    word,
+                    "く",
+                    &["かない", "か", "き", "け", "こ", "いて", "いた"],
+                );
             }
 
             GodanVerbGu => {
-                end_replace_push(word, "ぐ", &["が", "ぎ", "げ", "ご", "いで", "いだ"]);
+                end_replace_push(
+                    word,
+                    "ぐ",
+                    &["がない", "が", "ぎ", "げ", "ご", "いで", "いだ"],
+                );
             }
 
             GodanVerbNu => {
-                end_replace_push(word, "ぬ", &["な", "に", "ね", "の", "んで", "んだ"]);
+                end_replace_push(
+                    word,
+                    "ぬ",
+                    &["なない", "な", "に", "ね", "の", "んで", "んだ"],
+                );
             }
 
             GodanVerbBu => {
-                end_replace_push(word, "ぶ", &["ば", "び", "べ", "ぼ", "んで", "んだ"]);
+                end_replace_push(
+                    word,
+                    "ぶ",
+                    &["ばない", "ば", "び", "べ", "ぼ", "んで", "んだ"],
+                );
             }
 
             GodanVerbMu => {
-                end_replace_push(word, "む", &["ま", "み", "め", "も", "んで", "んだ"]);
+                end_replace_push(
+                    word,
+                    "む",
+                    &["まない", "ま", "み", "め", "も", "んで", "んだ"],
+                );
             }
 
             GodanVerbSu => {
-                end_replace_push(word, "す", &["さ", "し", "せ", "そ", "して", "した"]);
+                end_replace_push(
+                    word,
+                    "す",
+                    &["さない", "さ", "し", "せ", "そ", "して", "した"],
+                );
             }
 
             IkuVerb => {
-                end_replace_push(word, "く", &["か", "き", "け", "こ", "って", "った"]);
+                end_replace_push(
+                    word,
+                    "く",
+                    &["かない", "か", "き", "け", "こ", "って", "った"],
+                );
             }
 
             KuruVerb => {
@@ -571,6 +625,7 @@ fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<(String, u32)> {
                         "でき",
                         "した",
                         "して",
+                        "しない",
                         "します",
                         "しません",
                     ],
@@ -640,7 +695,7 @@ fn generate_name_entry_text(use_katakana: bool, entry: &yomichan::TermEntry) -> 
 fn generate_kanji_entry_text(entry: &yomichan::KanjiEntry) -> String {
     let mut text = String::new();
 
-    text.push_str("<p style=\"margin-left: 2.5em; margin-bottom: 0.7em; text-indent: -2.5em;\"><span style=\"font-size: 1.5em;\">");
+    text.push_str("<p style=\"margin-left: 2.5em; margin-bottom: 1.0em; text-indent: -2.5em;\"><span style=\"font-size: 1.5em;\">");
     text.push_str(&entry.kanji);
     if !entry.meanings.is_empty() {
         text.push_str("</span>　");
