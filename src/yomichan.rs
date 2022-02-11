@@ -6,6 +6,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
 
+use regex::Regex;
 use serde_json::Value;
 
 //----------------------------------------------------------------
@@ -15,7 +16,7 @@ pub struct TermEntry {
     pub dict_name: String,
     pub writing: String,
     pub reading: String,
-    pub definitions: Vec<Definition>,
+    pub definitions: Definition,
     pub infl: InflectionType,
     pub tags: Vec<String>,
     pub commonness: i32, // Higher is more common.
@@ -24,8 +25,50 @@ pub struct TermEntry {
 // A (possibly hierarchical) list of definitions.
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub enum Definition {
-    List(Vec<Definition>),
+    List((String, Vec<Definition>)), // (header, list)
     Def(String),
+}
+
+impl Definition {
+    pub fn new() -> Definition {
+        Definition::List(("".into(), Vec::new()))
+    }
+
+    pub fn is_list(&self) -> bool {
+        match self {
+            &Definition::List(_) => true,
+            &Definition::Def(_) => false,
+        }
+    }
+
+    pub fn depth(&self) -> usize {
+        match self {
+            &Definition::List((_, ref l)) => 1 + l.iter().fold(0usize, |a, b| a.max(b.depth())),
+            &Definition::Def(_) => 0,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            &Definition::List((_, ref l)) => l.len(),
+            &Definition::Def(_) => 1,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            &Definition::List((ref h, ref l)) => h.trim().is_empty() && l.is_empty(),
+            &Definition::Def(ref s) => s.trim().is_empty(),
+        }
+    }
+
+    pub fn def_text(&self) -> &str {
+        if let &Definition::Def(ref text) = self {
+            text
+        } else {
+            panic!("Definition is a list, cannot fetch text.")
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -115,6 +158,18 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
         // Parse the json into entries.
         if filename.starts_with("term_bank_") {
             // It's a term bank.
+
+            // Dividers for the 三省堂　スーパー大辞林 dictionary.
+            // But probably works for some other native Japanese
+            // dictionaries as well.
+            let dividers = &[
+                // The (?m) puts the regex into multi-line mode, so
+                // that ^ will match both newlines and start of text.
+                Regex::new("(?m)^■[一二三四五六七八九十]+■").unwrap(),
+                Regex::new("(?m)^[❶❷❸❹❺❻❼❽❾❿]+").unwrap(),
+                Regex::new("(?m)^（[０１２３４５６７８９]+）").unwrap(),
+            ];
+
             for item in json.as_array().unwrap().iter() {
                 let mut tags: Vec<String> = item
                     .get(2)
@@ -142,24 +197,27 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                         _ => InflectionType::None,
                     },
                     commonness: item.get(4).unwrap().as_i64().unwrap() as i32,
-                    definitions: vec![Definition::Def(
-                        item.get(5)
-                            .unwrap()
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .map(|d| {
-                                if let Some(s) = d.as_str() {
-                                    s.trim()
-                                } else {
-                                    // Ignore the complex structured defintions for now.
-                                    // TODO: handle this properly.
-                                    ""
-                                }
-                            })
-                            .collect::<Vec<&str>>()
-                            .join("; "),
-                    )],
+                    definitions: Definition::List((
+                        "".into(),
+                        vec![Definition::Def(
+                            item.get(5)
+                                .unwrap()
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|d| {
+                                    if let Some(s) = d.as_str() {
+                                        s.trim()
+                                    } else {
+                                        // Ignore the complex structured defintions for now.
+                                        // TODO: handle this properly.
+                                        ""
+                                    }
+                                })
+                                .collect::<Vec<&str>>()
+                                .join("; "),
+                        )],
+                    )),
                     tags: tags,
                 };
 
@@ -173,17 +231,22 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                         dict_name: dictionary_title.clone(),
                         writing: entry.writing.clone(),
                         reading: entry.reading.clone(),
-                        definitions: Vec::new(),
+                        definitions: Definition::List(("".into(), Vec::new())),
                         infl: entry.infl,
                         tags: Vec::new(),
                         commonness: entry.commonness,
                     });
-                    e.definitions.extend(
-                        entry
-                            .definitions
-                            .drain(..)
-                            .filter_map(|d| process_definition(&key.0, &key.1, d)),
-                    );
+                    assert!(e.definitions.is_list());
+                    if let Definition::List((_, ref mut list_to)) = e.definitions {
+                        match entry.definitions {
+                            Definition::List((_, mut list_from)) => {
+                                list_to.extend(list_from.drain(..).filter_map(|d| {
+                                    process_definition(&key.0, &key.1, dividers, d)
+                                }))
+                            }
+                            Definition::Def(s) => list_to.push(Definition::Def(s)),
+                        }
+                    }
                     e.tags.extend(entry.tags.drain(..));
                     e.tags.sort_unstable();
                     e.tags.dedup();
@@ -236,19 +299,28 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
 }
 
 /// Recursively process definitions.
-fn process_definition(writing: &str, reading: &str, def: Definition) -> Option<Definition> {
+///
+/// The `dividers` regex's are for further splitting definitions into a
+/// deeper hierarchy.  The first reghex in the list is used for the top
+/// level split, the second for the second level, and so on.
+fn process_definition(
+    writing: &str,
+    reading: &str,
+    dividers: &[Regex],
+    def: Definition,
+) -> Option<Definition> {
     match def {
-        Definition::List(mut list) => {
+        Definition::List((header, mut list)) => {
             let mut processed_list: Vec<_> = list
                 .drain(..)
-                .filter_map(|d| process_definition(writing, reading, d))
+                .filter_map(|d| process_definition(writing, reading, dividers, d))
                 .collect();
             if processed_list.is_empty() {
                 None
-            } else if processed_list.len() == 1 {
+            } else if header.trim().is_empty() && processed_list.len() == 1 {
                 Some(processed_list.remove(0))
             } else {
-                Some(Definition::List(processed_list))
+                Some(Definition::List((header, processed_list)))
             }
         }
 
@@ -275,27 +347,109 @@ fn process_definition(writing: &str, reading: &str, def: Definition) -> Option<D
                 }
             };
 
-            Some(Definition::Def(s))
+            Some(split_definition_text(&s, dividers))
         }
     }
 }
 
-pub fn definition_to_html(def: &Definition) -> String {
+fn split_definition_text(s: &str, dividers: &[Regex]) -> Definition {
+    // Try each divider in turn, to divide into sub-definitions.
+    for divider in dividers.iter() {
+        let match_count = divider.find_iter(&s).count();
+        if match_count > 0 {
+            let mut list: Vec<Definition> = divider
+                .split(&s)
+                .filter(|t| !t.trim().is_empty())
+                .map(|t| split_definition_text(t.into(), dividers))
+                .collect();
+
+            if list.is_empty() {
+                break;
+            } else if list.len() == 1 {
+                return list.remove(0);
+            } else {
+                let header = if list.len() > match_count && !list[0].is_list() {
+                    let tmp = list.remove(0);
+                    tmp.def_text().into()
+                } else {
+                    String::new()
+                };
+                return Definition::List((header, list));
+            }
+        }
+    }
+
+    // If none of the dividers matched, just return the text as-is.
+    Definition::Def(s.trim().replace("\n", "<br>"))
+}
+
+/// Converts a defintion(s) to html.
+///
+/// `ordered_list` is whether to use an ordered html list type or
+/// unordered.
+pub fn definition_to_html(def: &Definition, total_depth: usize, ordered_list: bool) -> String {
     let mut html = String::new();
+    let depth = def.depth();
 
     match def {
-        &Definition::List(ref list) => {
-            html.push_str("<ol>");
-            for d in list.iter() {
-                html.push_str("<li>");
-                html.push_str(&definition_to_html(d));
-                html.push_str("<li>");
+        &Definition::List((ref header, ref list)) => {
+            if header.trim().is_empty() && list.len() == 1 {
+                return definition_to_html(&list[0], total_depth - 1, ordered_list);
+            } else {
+                if !header.trim().is_empty() {
+                    html.push_str("<p>");
+                    html.push_str(header.trim());
+                    html.push_str("</p>");
+                }
+                if ordered_list {
+                    match total_depth {
+                        0 => panic!("Incorrect `total_depth` given."),
+                        1 => match total_depth.saturating_sub(depth) {
+                            0 => html.push_str("<ol style=\"list-style-type: decimal\">"),
+                            _ => panic!("Incorrect `total_depth` given."),
+                        },
+                        2 => match total_depth.saturating_sub(depth) {
+                            0 => html.push_str("<ol style=\"list-style-type: upper-roman\">"),
+                            1 => html.push_str("<ol style=\"list-style-type: decimal\">"),
+                            _ => panic!("Incorrect `total_depth` given."),
+                        },
+                        _ => match total_depth.saturating_sub(depth) {
+                            0 => html.push_str("<ol style=\"list-style-type: upper-roman\">"),
+                            1 => html.push_str("<ol style=\"list-style-type: upper-alpha\">"),
+                            2 => html.push_str("<ol style=\"list-style-type: decimal\">"),
+                            _ => html.push_str("<ol style=\"list-style-type: decimal\">"),
+                        },
+                    }
+                } else {
+                    html.push_str("<ul>");
+                }
+                for d in list.iter() {
+                    html.push_str("<li>");
+                    html.push_str(&definition_to_html(d, total_depth, ordered_list));
+                    html.push_str("</li>");
+                }
+                if ordered_list {
+                    html.push_str("</ol>");
+                } else {
+                    html.push_str("</ul>");
+                }
             }
-            html.push_str("</ol>");
         }
 
         &Definition::Def(ref s) => {
-            html.push_str(s);
+            if total_depth == 0 {
+                if ordered_list {
+                    html.push_str("<ol><li>");
+                    html.push_str(s);
+                    html.push_str("</li></ol>");
+                } else {
+                    html.push_str("<ul><li>");
+                    html.push_str(s);
+                    html.push_str("</li></ul>");
+                }
+            } else {
+                html.push_str(s);
+            }
         }
     }
 
