@@ -411,7 +411,7 @@ fn generate_definition_text(
     for entry in yomi_entries.iter() {
         text.push_str(&format!("<p>{}:<br/><ol>", entry.dict_name));
         for def in entry.definitions.iter() {
-            text.push_str(&format!("<li>{}</li>", def));
+            text.push_str(&format!("<li>{}</li>", yomichan::definition_to_html(def)));
         }
         text.push_str("</ol></p>");
     }
@@ -683,7 +683,7 @@ fn generate_name_entry_text(use_katakana: bool, entry: &yomichan::TermEntry) -> 
         text.push_str("<p><ul>");
         for def in entry.definitions.iter() {
             text.push_str("<li>");
-            text.push_str(&def);
+            text.push_str(&yomichan::definition_to_html(&def));
             text.push_str("</li>");
         }
         text.push_str("</ul></p>");

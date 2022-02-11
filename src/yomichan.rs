@@ -15,10 +15,17 @@ pub struct TermEntry {
     pub dict_name: String,
     pub writing: String,
     pub reading: String,
-    pub definitions: Vec<String>,
+    pub definitions: Vec<Definition>,
     pub infl: InflectionType,
     pub tags: Vec<String>,
     pub commonness: i32, // Higher is more common.
+}
+
+// A (possibly hierarchical) list of definitions.
+#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub enum Definition {
+    List(Vec<Definition>),
+    Def(String),
 }
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -135,23 +142,24 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                         _ => InflectionType::None,
                     },
                     commonness: item.get(4).unwrap().as_i64().unwrap() as i32,
-                    definitions: vec![item
-                        .get(5)
-                        .unwrap()
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|d| {
-                            if let Some(s) = d.as_str() {
-                                s.trim()
-                            } else {
-                                // Ignore the complex structured defintions for now.
-                                // TODO: handle this properly.
-                                ""
-                            }
-                        })
-                        .collect::<Vec<&str>>()
-                        .join("; ")],
+                    definitions: vec![Definition::Def(
+                        item.get(5)
+                            .unwrap()
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|d| {
+                                if let Some(s) = d.as_str() {
+                                    s.trim()
+                                } else {
+                                    // Ignore the complex structured defintions for now.
+                                    // TODO: handle this properly.
+                                    ""
+                                }
+                            })
+                            .collect::<Vec<&str>>()
+                            .join("; "),
+                    )],
                     tags: tags,
                 };
 
@@ -174,29 +182,7 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                         entry
                             .definitions
                             .drain(..)
-                            .filter(|d| {
-                                // Attempt to get rid of English-Japanese definitions from
-                                // native Japanese dictionaries.
-                                !d.contains("英和") || key.0.contains("英和")
-                            })
-                            .map(|d| {
-                                // Attempt to get rid of entry headers in the definitions.  They are
-                                // annoyingly present in most of the native Japanese dictionaries
-                                // converted to Yomichan format.
-                                //
-                                // Our heuristic is that if there's multiple lines, and the first
-                                // line contains the Japanese word itself, then the first line is
-                                // probably a header and we can drop it.
-                                let header_indicator_idx =
-                                    d.find(&key.0).or_else(|| d.find(&key.1));
-                                let first_line_break_idx = d.find("\n");
-                                match (header_indicator_idx, first_line_break_idx) {
-                                    (Some(a), Some(b)) if a < b && (b + 1) < d.len() => {
-                                        (&d[(b + 1)..]).into()
-                                    }
-                                    _ => d,
-                                }
-                            }),
+                            .filter_map(|d| process_definition(&key.0, &key.1, d)),
                     );
                     e.tags.extend(entry.tags.drain(..));
                     e.tags.sort_unstable();
@@ -247,4 +233,71 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
     term_entries.sort_unstable();
 
     Ok((term_entries, name_entries, kanji_entries))
+}
+
+/// Recursively process definitions.
+fn process_definition(writing: &str, reading: &str, def: Definition) -> Option<Definition> {
+    match def {
+        Definition::List(mut list) => {
+            let mut processed_list: Vec<_> = list
+                .drain(..)
+                .filter_map(|d| process_definition(writing, reading, d))
+                .collect();
+            if processed_list.is_empty() {
+                None
+            } else if processed_list.len() == 1 {
+                Some(processed_list.remove(0))
+            } else {
+                Some(Definition::List(processed_list))
+            }
+        }
+
+        Definition::Def(mut s) => {
+            // Attempt to get rid of English-Japanese definitions from
+            // native Japanese dictionaries.
+            if s.contains("英和") && !writing.contains("英和") {
+                return None;
+            }
+
+            // Attempt to get rid of entry headers in the definitions.  They are
+            // annoyingly present in most of the native Japanese dictionaries
+            // converted to Yomichan format.
+            //
+            // Our heuristic is that if there's multiple lines, and the first
+            // line contains the Japanese word itself, then the first line is
+            // probably a header and we can drop it.
+            s = {
+                let header_indicator_idx = s.find(writing).or_else(|| s.find(reading));
+                let first_line_break_idx = s.find("\n");
+                match (header_indicator_idx, first_line_break_idx) {
+                    (Some(a), Some(b)) if a < b && (b + 1) < s.len() => (&s[(b + 1)..]).into(),
+                    _ => s,
+                }
+            };
+
+            Some(Definition::Def(s))
+        }
+    }
+}
+
+pub fn definition_to_html(def: &Definition) -> String {
+    let mut html = String::new();
+
+    match def {
+        &Definition::List(ref list) => {
+            html.push_str("<ol>");
+            for d in list.iter() {
+                html.push_str("<li>");
+                html.push_str(&definition_to_html(d));
+                html.push_str("<li>");
+            }
+            html.push_str("</ol>");
+        }
+
+        &Definition::Def(ref s) => {
+            html.push_str(s);
+        }
+    }
+
+    html
 }
