@@ -6,7 +6,7 @@ edition = "2018"
 
 
 [dependencies]
-clap = { version = "2", features = ["wrap_help"] }
+clap = { version = "3", features = ["wrap_help", "cargo"] }
 flate2 = "1"
 quick-xml = "0.22"
 regex = "1.5"

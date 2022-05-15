@@ -1,6 +1,6 @@
 # Kobo Japanese Dictionary Builder
 
-A tool that generates Japanese-English dictionaries for the [Kobo](https://www.kobo.com) line of e-readers from Yomichan dictionaries.
+A tool that generates Japanese-English dictionaries for the [Kobo](https://www.kobo.com) line of e-readers from [Yomichan dictionaries](https://foosoft.net/projects/yomichan/#dictionaries).
 
 
 ## Example usage

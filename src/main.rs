@@ -16,41 +16,41 @@ mod yomichan;
 use jmdict::{ConjugationClass, PartOfSpeech, WordEntry};
 
 fn main() -> io::Result<()> {
-    let matches = clap::App::new("Kobo Japanese Dictionary Builder")
+    let matches = clap::Command::new("Kobo Japanese Dictionary Builder")
         .version(clap::crate_version!())
         .arg(
-            clap::Arg::with_name("OUTPUT")
-                .help("The output filepath to write the new dictionary to")
+            clap::Arg::new("OUTPUT")
+                .help("The output filepath to write the new dictionary to.")
                 .required(true)
                 .index(1),
         )
         .arg(
-            clap::Arg::with_name("pitch_accent")
-                .short("p")
+            clap::Arg::new("pitch_accent")
+                .short('p')
                 .long("pitch_accent")
-                .help("Path to a custom pitch accent file in .tsv format.  Will be used instead of the bundled pitch accent data")
+                .help("Path to a custom pitch accent file in .tsv format.  Will be used instead of the bundled pitch accent data.")
                 .value_name("PATH")
                 .takes_value(true),
         )
         .arg(
-            clap::Arg::with_name("yomichan_dict")
-                .short("y")
+            clap::Arg::new("yomichan_dict")
+                .short('y')
                 .long("yomichan")
-                .help("Path to a zipped Yomichan dictionary.  Will add either additional definitions to existing entries or completely new entries, depending the dictionary")
+                .help("Path to a zipped Yomichan dictionary.  Will add either additional definitions to existing entries or completely new entries, depending the dictionary.")
                 .value_name("PATH")
                 .takes_value(true)
-                .multiple(true),
+                .multiple_occurrences(true),
         )
         .arg(
-            clap::Arg::with_name("katakana_pronunciation")
+            clap::Arg::new("katakana_pronunciation")
                 .long("katakana")
-                .help("Use katakana instead of hiragana for word pronunciation"),
+                .help("Use katakana instead of hiragana for word pronunciation."),
         )
         .arg(
-            clap::Arg::with_name("use_move_terms")
-                .short("m")
+            clap::Arg::new("use_move_terms")
+                .short('m')
                 .long("use_move_terms")
-                .help("Use the terms \"other-move\" and \"self-move\" instead of \"transitive\" and \"intransitive\".  The former is more accurate to how Japanese works, but the latter are more commonly known and used"),
+                .help("Use the terms \"other-move\" and \"self-move\" instead of \"transitive\" and \"intransitive\".  The former is more accurate to how Japanese works, but the latter are more commonly known and used."),
         )
         .get_matches();
 
