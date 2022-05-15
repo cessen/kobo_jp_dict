@@ -26,7 +26,9 @@ Not all Yomichan dictionaries are supported, but at least JMDict, kanji, name, a
 
 On recent Kobo firmware the installation process is very straightforward: just copy the produced dictionary file to `.kobo/custom-dict/dicthtml-ja-en.zip` on your Kobo device.
 
-Note that the filename is important: Kobo e-readers use the dictionary filename to determine the type of dictionary and what language(s) it's for.  Your Kobo may fail to register the dictionary if you name it incorrectly.  If you've generated a Japanese-Japanese dictionary, you can use the filename `dicthtml-ja.zip` instead.
+Note that the filename is important: Kobo e-readers use the dictionary filename to determine the type of dictionary and what language(s) it's for.  Your Kobo may fail to register the dictionary if you name it incorrectly.
+
+If you've generated a Japanese-Japanese dictionary, you can use the filename `dicthtml-ja.zip` instead.
 
 
 ## Using the dictionary
