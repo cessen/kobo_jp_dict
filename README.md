@@ -1,8 +1,6 @@
 # Kobo Japanese Dictionary Builder
 
-A tool that generates Japanese-English dictionaries for the [Kobo](https://www.kobo.com) line of e-readers.
-
-It requires a [JMDict](https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project) XML file as input, and can optionally take pitch accent data and Japanese-Japanese definitions from certain sources as well.
+A tool that generates Japanese-English dictionaries for the [Kobo](https://www.kobo.com) line of e-readers from Yomichan dictionaries.
 
 
 ## Example usage
@@ -10,25 +8,25 @@ It requires a [JMDict](https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Diction
 Typical usage looks like this:
 
 ```
-kobo_jp_dict -j JMdict_e.xml -p accent.tsv dicthtml-ja-en.zip
+kobo_jp_dict -y jmdict_english.zip dicthtml-ja-en.zip
 ```
 
-This takes `JMdict_e.xml` and the pitch-accent file `accent.tsv` as input, and produces the Kobo dictionary file `dicthtml-ja-en.zip`.
+This takes the Yomichan dictionary `jmdict_english.zip` as input and produces the Kobo dictionary file `dicthtml-ja-en.zip`.
 
-You can also include entries from Yomichan dictionaries using the `-y` flag like so:
+You can include as many Yomichan dictionaries as you like with repeated use of the `-y` flag like so:
 
 ```
-kobo_jp_dict -j JMdict_e.xml -p accent.tsv -y yomichan_dictionary_1.zip -y yomichan_dictionary_2.zip dicthtml-ja-en.zip
+kobo_jp_dict -y yomichan_dictionary_1.zip -y yomichan_dictionary_2.zip dicthtml-ja-en.zip
 ```
 
-Note that a JMdict xml file is always required, even when providing yomichan dictionaries.  (This requirement may be lifted in the future.)  Not all Yomichan dictionaries are supported, but at least kanji, name, and most Japanese-Japanese dictionaries should work reasonably well.
+Not all Yomichan dictionaries are supported, but at least JMDict, kanji, name, and most Japanese-Japanese dictionaries should work reasonably well.
 
 
 ## Installing the produced dictionary
 
 On recent Kobo firmware the installation process is very straightforward: just copy the produced dictionary file to `.kobo/custom-dict/dicthtml-ja-en.zip` on your Kobo device.
 
-Note that the filename is important: Kobo e-readers use the dictionary filename to determine the type of dictionary and what language(s) it's for.  Your Kobo may fail to register the dictionary if you name it differently.
+Note that the filename is important: Kobo e-readers use the dictionary filename to determine the type of dictionary and what language(s) it's for.  Your Kobo may fail to register the dictionary if you name it incorrectly.  If you've generated a Japanese-Japanese dictionary, you can use the filename `dicthtml-ja.zip` instead.
 
 
 ## Using the dictionary

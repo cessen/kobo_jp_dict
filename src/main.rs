@@ -7,9 +7,10 @@ use std::io;
 use std::io::prelude::*;
 use std::io::BufReader;
 
+use flate2::read::GzDecoder;
+
 mod jmdict;
 mod kobo;
-mod kobo_ja;
 mod yomichan;
 
 use jmdict::{ConjugationClass, PartOfSpeech, WordEntry};
@@ -24,27 +25,10 @@ fn main() -> io::Result<()> {
                 .index(1),
         )
         .arg(
-            clap::Arg::with_name("jmdict")
-                .short("j")
-                .long("jmdict")
-                .help("Path to the JMDict XML file.  This is used as the main source dictionary, and is required")
-                .required(true)
-                .value_name("PATH")
-                .takes_value(true),
-        )
-        .arg(
             clap::Arg::with_name("pitch_accent")
                 .short("p")
                 .long("pitch_accent")
-                .help("Path to the pitch accent file if available.  Will add pitch accent information to matching entries")
-                .value_name("PATH")
-                .takes_value(true),
-        )
-        .arg(
-            clap::Arg::with_name("kobo_ja_dict")
-                .short("k")
-                .long("kobo_ja_dict")
-                .help("Path to the Kobo Japanese-Japanese dictionary file if available.  Will add native Japanese definitions to matching entries")
+                .help("Path to a custom pitch accent file in .tsv format.  Will be used instead of the bundled pitch accent data")
                 .value_name("PATH")
                 .takes_value(true),
         )
@@ -76,13 +60,13 @@ fn main() -> io::Result<()> {
     //----------------------------------------------------------------
     // Read in all the files.
 
-    println!("Loading dictionaries...");
+    println!("Extracting bundled data...");
 
-    // Open and parse the JMDict file.
-    let mut jm_table: HashMap<(String, String), Vec<WordEntry>> = HashMap::new(); // (Kanji, Kana)
-    if let Some(path) = matches.value_of("jmdict") {
-        let parser = jmdict::Parser::from_reader(BufReader::new(File::open(path)?));
-
+    // Parse the bundled JMDict XML data.
+    const JM_DATA: &[u8] = include_bytes!("../dictionaries/JMdict_e.xml.gz");
+    let jm_table = {
+        let mut jm_table: HashMap<(String, String), Vec<WordEntry>> = HashMap::new(); // (Kanji, Kana)
+        let parser = jmdict::Parser::from_reader(BufReader::new(GzDecoder::new(JM_DATA)));
         for entry in parser {
             let reading = strip_non_kana(&hiragana_to_katakana(&entry.readings[0].trim()));
             let writing = if entry.writings.len() > 0 {
@@ -94,13 +78,24 @@ fn main() -> io::Result<()> {
             let e = jm_table.entry((writing, reading)).or_insert(Vec::new());
             e.push(entry);
         }
-        println!("    JMDict entries: {}", jm_table.len());
-    }
+        jm_table
+    };
+    println!("    Metadata entries: {}", jm_table.len());
 
-    // Open and parse the pitch accent file.
-    let mut pa_table: HashMap<(String, String), Vec<u32>> = HashMap::new(); // (Kanji, Kana), Pitch Accent
-    if let Some(path) = matches.value_of("pitch_accent") {
-        let reader = BufReader::new(File::open(path)?);
+    // Open and parse the pitch accent data.
+    const PA_DATA: &[u8] = include_bytes!("../dictionaries/accents.tsv.gz");
+    let pa_table = {
+        let mut pa_table: HashMap<(String, String), Vec<u32>> = HashMap::new(); // (Kanji, Kana), Pitch Accent
+
+        // Use the passed file if specified on the command line.  Otherwise use the bundled one.
+        let mut data = Vec::new();
+        if let Some(path) = matches.value_of("pitch_accent") {
+            File::open(path)?.read_to_end(&mut data)?;
+        } else {
+            GzDecoder::new(PA_DATA).read_to_end(&mut data)?;
+        };
+        let reader = std::io::Cursor::new(data);
+
         for line in reader.lines() {
             let line = line.unwrap_or_else(|_| "".into());
             let parts: Vec<_> = line.split("\t").map(|a| a.trim()).collect();
@@ -119,21 +114,11 @@ fn main() -> io::Result<()> {
 
             pa_table.insert((writing, reading), accents);
         }
-        println!("    Pitch Accent entries: {}", pa_table.len());
-    }
+        pa_table
+    };
+    println!("    Pitch Accent entries: {}", pa_table.len());
 
-    // Open and parse the Kobo Japanese-Japanese dictionary.
-    let mut kobo_table: HashMap<(String, String), Vec<kobo_ja::Entry>> = HashMap::new(); // (DictKey, Kana) -> EntryList
-    if let Some(path) = matches.value_of("kobo_ja_dict") {
-        let mut entries = kobo_ja::parse(std::path::Path::new(path), true)?;
-        for entry in entries.drain(..) {
-            let entry_list = kobo_table
-                .entry((entry.key.clone(), entry.kana.clone()))
-                .or_insert(Vec::new());
-            entry_list.push(entry);
-        }
-        println!("    Kobo dictionary entries: {}", kobo_table.len());
-    }
+    println!("Loading dictionaries...");
 
     // Open and parse Yomichan dictionaries.
     let mut yomi_term_table: HashMap<(String, String), Vec<yomichan::TermEntry>> = HashMap::new(); // (Kanji, Kana)
@@ -199,41 +184,46 @@ fn main() -> io::Result<()> {
     // Generate the new dictionary entries.
     let mut entries = Vec::new();
 
+    // Kanji entries.
+    for (kanji, items) in yomi_kanji_table.iter() {
+        let mut entry_text: String = "<hr/>".into();
+        entry_text.push_str(&generate_kanji_entry_text(&items[0]));
+
+        entries.push(kobo::Entry {
+            keys: vec![(kanji.clone(), 0)],
+            definition: entry_text,
+        });
+    }
+
     // Term entries.
     for ((kanji, kana), item) in jm_table.iter() {
         for jm_entry in item.iter() {
-            let mut entry_text: String = "<hr/>".into();
-
-            // Find matching entries in other source dictionaries.
+            // Find matching entries in the source dictionaries.
             let pitch_accent = pa_table.get(&(kanji.clone(), kana.clone()));
             let yomi_term_entries = yomi_term_table
                 .get(&(kanji.clone(), kana.clone()))
                 .map(|a| a.as_slice())
                 .unwrap_or(&[]);
-            let kobo_jp_entries = kobo_table
-                .get(&(kanji.clone(), kana.clone()))
-                .map(|a| a.as_slice())
-                .unwrap_or(&[]);
 
-            // Add header and definition to the entry text.
-            entry_text.push_str(&generate_header_text(
-                matches.is_present("katakana_pronunciation"),
-                matches.is_present("use_move_terms"),
-                &kana,
-                pitch_accent,
-                &jm_entry,
-            ));
-            entry_text.push_str(&generate_definition_text(
-                &jm_entry,
-                yomi_term_entries,
-                kobo_jp_entries,
-            ));
+            if pitch_accent.is_some() || !yomi_term_entries.is_empty() {
+                let mut entry_text: String = "<hr/>".into();
 
-            // Add to the entry list.
-            entries.push(kobo::Entry {
-                keys: generate_lookup_keys(jm_entry),
-                definition: entry_text,
-            });
+                // Add header and definition to the entry text.
+                entry_text.push_str(&generate_header_text(
+                    matches.is_present("katakana_pronunciation"),
+                    matches.is_present("use_move_terms"),
+                    &kana,
+                    pitch_accent,
+                    &jm_entry,
+                ));
+                entry_text.push_str(&generate_definition_text(yomi_term_entries));
+
+                // Add to the entry list.
+                entries.push(kobo::Entry {
+                    keys: generate_lookup_keys(jm_entry),
+                    definition: entry_text,
+                });
+            }
         }
     }
 
@@ -250,17 +240,6 @@ fn main() -> io::Result<()> {
                 definition: entry_text,
             });
         }
-    }
-
-    // Kanji entries.
-    for (kanji, items) in yomi_kanji_table.iter() {
-        let mut entry_text: String = "<hr/>".into();
-        entry_text.push_str(&generate_kanji_entry_text(&items[0]));
-
-        entries.push(kobo::Entry {
-            keys: vec![(kanji.clone(), 0)],
-            definition: entry_text,
-        });
     }
 
     entries.sort_by_key(|a| a.keys[0].0.len());
@@ -395,21 +374,15 @@ fn generate_header_text(
 }
 
 /// Generate English definition text from the given JMDict entry.
-fn generate_definition_text(
-    jm_entry: &WordEntry,
-    yomi_entries: &[yomichan::TermEntry],
-    kobo_entries: &[kobo_ja::Entry],
-) -> String {
+fn generate_definition_text(yomi_entries: &[yomichan::TermEntry]) -> String {
     let mut text = String::new();
 
-    text.push_str("<p style=\"margin-top: 0.7em; margin-bottom: 0.7em;\"><ol>");
-    for def in jm_entry.definitions.iter() {
-        text.push_str(&format!("<li>{}</li>", def));
-    }
-    text.push_str("</ol></p>");
-
+    text.push_str("<div style=\"margin-top: 0.7em\">");
     for entry in yomi_entries.iter() {
-        text.push_str(&format!("<p>{}:<br/>", entry.dict_name));
+        text.push_str("<p>");
+        if yomi_entries.len() > 1 {
+            text.push_str(&format!("{}:<br/>", entry.dict_name));
+        }
         text.push_str(&yomichan::definition_to_html(
             &entry.definitions,
             entry.definitions.depth(),
@@ -417,10 +390,7 @@ fn generate_definition_text(
         ));
         text.push_str("</p>");
     }
-
-    for kobo_entry in kobo_entries.iter().take(1) {
-        text.push_str(&kobo_entry.definition);
-    }
+    text.push_str("</div>");
 
     text
 }
@@ -428,6 +398,8 @@ fn generate_definition_text(
 /// Generates the look-up keys for a JMDict word entry, including
 /// basic conjugations.
 fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<(String, u32)> {
+    let jm_priority = jm_entry.priority + 256; // Ensure we never reach zero, since that's reserved for Kanji entries.
+
     // Give verbs and i-adjectives a priority boost, so they show up
     // earlier in search results.
     let priority_boost = match jm_entry.conj {
@@ -445,9 +417,9 @@ fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<(String, u32)> {
         // If a word is usually written in kana, give the kana form a major
         // priority boost.
         let priority = if is_all_kana(word) && jm_entry.usually_kana {
-            jm_entry.priority / 8
+            jm_priority / 8
         } else {
-            jm_entry.priority
+            jm_priority
         } / priority_boost;
 
         // We include the katakana version for all-hiragana
@@ -695,7 +667,7 @@ fn generate_name_entry_text(use_katakana: bool, entry: &yomichan::TermEntry) -> 
 fn generate_kanji_entry_text(entry: &yomichan::KanjiEntry) -> String {
     let mut text = String::new();
 
-    text.push_str("<p style=\"margin-left: 2.5em; margin-bottom: 1.0em; text-indent: -2.5em;\"><span style=\"font-size: 1.5em;\">");
+    text.push_str("<p style=\"margin-left: 2.5em; margin-bottom: 1.0em; text-indent: -2.5em;\"><span style=\"font-size: 2.0em;\">");
     text.push_str(&entry.kanji);
     if !entry.meanings.is_empty() {
         text.push_str("</span>　");
