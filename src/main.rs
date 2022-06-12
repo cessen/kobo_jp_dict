@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+#[macro_use]
+extern crate lazy_static;
+
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fs::File;
@@ -43,6 +46,7 @@ fn main() -> io::Result<()> {
         )
         .arg(
             clap::Arg::new("katakana_pronunciation")
+                .short('k')
                 .long("katakana")
                 .help("Use katakana instead of hiragana for word pronunciation."),
         )
@@ -52,7 +56,21 @@ fn main() -> io::Result<()> {
                 .long("use_move_terms")
                 .help("Use the terms \"other-move\" and \"self-move\" instead of \"transitive\" and \"intransitive\".  The former is more accurate to how Japanese works, but the latter are more commonly known and used."),
         )
+        .arg(
+            clap::Arg::new("use_japanese_terms")
+                .short('j')
+                .long("use_japanese_terms")
+                .help("Use the Japanese terms for \"verb\", \"transitive\", etc. instead of English in entry headers."),
+        )
         .get_matches();
+
+    let lang_mode = if matches.is_present("use_japanese_terms") {
+        LangMode::Japanese
+    } else if matches.is_present("use_move_terms") {
+        LangMode::EnglishAlt
+    } else {
+        LangMode::English
+    };
 
     // Output zip archive path.
     let output_filename = matches.value_of("OUTPUT").unwrap();
@@ -211,7 +229,7 @@ fn main() -> io::Result<()> {
                 // Add header and definition to the entry text.
                 entry_text.push_str(&generate_header_text(
                     matches.is_present("katakana_pronunciation"),
-                    matches.is_present("use_move_terms"),
+                    lang_mode,
                     &kana,
                     pitch_accent,
                     &jm_entry,
@@ -233,6 +251,7 @@ fn main() -> io::Result<()> {
             let mut entry_text: String = "<hr/>".into();
             entry_text.push_str(&generate_name_entry_text(
                 matches.is_present("katakana_pronunciation"),
+                lang_mode,
                 item,
             ));
             entries.push(kobo::Entry {
@@ -252,10 +271,58 @@ fn main() -> io::Result<()> {
     return Ok(());
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum LangMode {
+    English,    // Standard English terms.
+    EnglishAlt, // Alternative English terms, e.g. "self-move" instead of "intransitive".
+    Japanese,   // Japanese terms.
+}
+
+impl LangMode {
+    fn idx(&self) -> usize {
+        use LangMode::*;
+        match *self {
+            English => 0,
+            EnglishAlt => 1,
+            Japanese => 2,
+        }
+    }
+}
+
+lazy_static! {
+    /// The key is the term, the index of the slice is the mode/language.
+    ///
+    /// The mode/language index corresponds to LangMode::idx(), above.
+    ///
+    /// When an entry is missing in a mode/language, it should be
+    /// set to the empty string "".
+    static ref HEADER_TERMS: HashMap<&'static str, &'static [&'static str]> = {
+        let mut m = HashMap::new();
+
+        m.insert("verb", &["verb", "verb", "動詞"][..]);
+        m.insert("i-adjective", &["i-adjective", "i-adjective", "形容詞"][..]);
+        m.insert("adjective", &["adjective", "adjective", "形容"][..]);
+        m.insert("name", &["name", "name", "名"][..]);
+        m.insert(
+            ", transitive",
+            &[", transitive", ", other-move", "、他動"][..],
+        );
+        m.insert(
+            ", intransitive",
+            &[", intransitive", ", self-move", "、自動"][..],
+        );
+        m.insert(", irregular", &[", irregular", ", irregular", ""][..]);
+        m.insert(", ichidan", &[", ichidan", ", ichidan", "、一段"][..]);
+        m.insert(", godan", &[", godan", ", godan", "、五段"][..]);
+
+        m
+    };
+}
+
 /// Generate header text from the given entry information.
 fn generate_header_text(
     use_katakana: bool,
-    use_move_terms: bool,
+    lang_mode: LangMode,
     kana: &str,
     pitch_accent: Option<&Vec<u32>>,
     jm_entry: &WordEntry,
@@ -300,7 +367,7 @@ fn generate_header_text(
         PartOfSpeech::Verb => {
             use ConjugationClass::*;
             let conj_type_text = match jm_entry.conj {
-                IchidanVerb => ", ichidan",
+                IchidanVerb => HEADER_TERMS[", ichidan"][lang_mode.idx()],
 
                 GodanVerbU
                 | GodanVerbTsu
@@ -310,7 +377,7 @@ fn generate_header_text(
                 | GodanVerbNu
                 | GodanVerbBu
                 | GodanVerbMu
-                | GodanVerbSu => ", godan",
+                | GodanVerbSu => HEADER_TERMS[", godan"][lang_mode.idx()],
 
                 SuruVerb
                 | SuruVerbSC
@@ -320,7 +387,7 @@ fn generate_header_text(
                 | AruVerb
                 | SharuVerb
                 | GodanVerbHu // Doesn't exist in modern Japanese, so we're calling it irregular.
-                | IrregularVerb => ", irregular",
+                | IrregularVerb => HEADER_TERMS[", irregular"][lang_mode.idx()],
 
                 _ => "",
             };
@@ -328,42 +395,36 @@ fn generate_header_text(
             let transitive = jm_entry.tags.contains("pos:vt");
             let intransitive = jm_entry.tags.contains("pos:vi");
             let transitive_text = match (transitive, intransitive) {
-                (true, false) => {
-                    if use_move_terms {
-                        ", other-move"
-                    } else {
-                        ", transitive"
-                    }
-                }
-                (false, true) => {
-                    if use_move_terms {
-                        ", self-move"
-                    } else {
-                        ", intransitive"
-                    }
-                }
+                (true, false) => HEADER_TERMS[", transitive"][lang_mode.idx()],
+                (false, true) => HEADER_TERMS[", intransitive"][lang_mode.idx()],
                 _ => "",
             };
 
             text.push_str(&format!(
-                "{}verb{}{}{}",
-                WORD_TYPE_START, conj_type_text, transitive_text, WORD_TYPE_END
+                "{}{}{}{}{}",
+                WORD_TYPE_START,
+                HEADER_TERMS["verb"][lang_mode.idx()],
+                transitive_text,
+                conj_type_text,
+                WORD_TYPE_END
             ));
         }
 
         PartOfSpeech::Adjective => {
             use ConjugationClass::*;
             let adjective_type_text = match jm_entry.conj {
-                IAdjective => "i-adjective",
+                IAdjective | IrregularIAdjective => HEADER_TERMS["i-adjective"][lang_mode.idx()],
+                _ => HEADER_TERMS["adjective"][lang_mode.idx()],
+            };
 
-                IrregularIAdjective => "i-adjective, irregular",
-
-                _ => "adjective",
+            let irregular_text = match jm_entry.conj {
+                IrregularIAdjective => HEADER_TERMS[", irregular"][lang_mode.idx()],
+                _ => "",
             };
 
             text.push_str(&format!(
-                "{}{}{}",
-                WORD_TYPE_START, adjective_type_text, WORD_TYPE_END
+                "{}{}{}{}",
+                WORD_TYPE_START, adjective_type_text, irregular_text, WORD_TYPE_END
             ));
         }
 
@@ -621,7 +682,11 @@ fn generate_lookup_keys(jm_entry: &WordEntry) -> Vec<(String, u32)> {
     keys
 }
 
-fn generate_name_entry_text(use_katakana: bool, entry: &yomichan::TermEntry) -> String {
+fn generate_name_entry_text(
+    use_katakana: bool,
+    lang_mode: LangMode,
+    entry: &yomichan::TermEntry,
+) -> String {
     let mut text = String::new();
 
     if !entry.reading.trim().is_empty() {
@@ -641,7 +706,7 @@ fn generate_name_entry_text(use_katakana: bool, entry: &yomichan::TermEntry) -> 
         " <span style=\"font-size: 0.8em; font-style: italic; margin-left: 0; white-space: nowrap;\">";
     const WORD_TYPE_END: &'static str = "</span>";
     text.push_str(WORD_TYPE_START);
-    text.push_str("name");
+    text.push_str(HEADER_TERMS["name"][lang_mode.idx()]);
     if !entry.tags.is_empty() {
         text.push_str(": ");
         for tag in entry.tags.iter() {
