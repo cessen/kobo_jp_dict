@@ -66,13 +66,29 @@ pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Resul
         marisa_path.set_extension(".marisa.tmp");
 
         // Run marisa-build to create the marisa trie data.
-        let process_output = std::process::Command::new("marisa-build")
+        match std::process::Command::new("marisa-build")
             .arg("-o")
             .arg(marisa_path.as_os_str())
             .arg(words_path.as_os_str())
             .output()
-            .unwrap();
-        assert!(process_output.status.success());
+        {
+            Ok(output) => {
+                if !output.status.success() {
+                    eprintln!(
+                        "Error: \"marisa-build\" exited with a failure:\n{}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: attempt to run \"marisa-build\" failed: {}", e);
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    eprintln!("Make sure you have marisa-build installed and in your path, and that you have the permissions needed to run it.");
+                }
+                std::process::exit(1);
+            }
+        };
 
         // Read in the marisa file data.
         let mut data = Vec::new();
