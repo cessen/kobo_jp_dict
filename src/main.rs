@@ -159,6 +159,12 @@ fn main() -> io::Result<()> {
                         .entry((entry.reading.trim().into(), reading))
                         .or_insert(Vec::new());
                     entry_list.push(entry);
+                } else if reading.is_empty() && is_all_kana(&writing) {
+                    let derived_reading = hiragana_to_katakana(&writing);
+                    let entry_list = yomi_term_table
+                        .entry((writing, derived_reading))
+                        .or_insert(Vec::new());
+                    entry_list.push(entry);
                 } else {
                     let entry_list = yomi_term_table
                         .entry((writing, reading))
