@@ -492,7 +492,6 @@ impl<R: BufRead> Iterator for Parser<R> {
                     }
                 }
                 Err(e) => {
-                    dbg!(&e);
                     panic!(
                         "Error at position {}: {:?}",
                         self.xml_parser.buffer_position(),
