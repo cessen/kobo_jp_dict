@@ -148,8 +148,8 @@ impl<R: BufRead> Iterator for Parser<R> {
         }
 
         loop {
-            match self.xml_parser.read_event(&mut self.buf) {
-                Ok(Event::Start(ref e)) => match e.name() {
+            match self.xml_parser.read_event_into(&mut self.buf) {
+                Ok(Event::Start(ref e)) => match e.name().as_ref() {
                     b"keb" => {
                         self.cur_xml_elem = Elem::Keb;
                     }
@@ -199,14 +199,14 @@ impl<R: BufRead> Iterator for Parser<R> {
                 },
                 Ok(Event::End(ref e)) => {
                     self.cur_xml_elem = Elem::None;
-                    if e.name() == b"gloss" {
+                    if e.name().as_ref() == b"gloss" {
                         // Jump back out into "sense" element.
                         self.cur_xml_elem = Elem::Sense;
-                    } else if e.name() == b"sense" {
+                    } else if e.name().as_ref() == b"sense" {
                         // Remove last two characters, which will just be "; ".
                         self.cur_entry.definitions.last_mut().unwrap().pop();
                         self.cur_entry.definitions.last_mut().unwrap().pop();
-                    } else if e.name() == b"entry" {
+                    } else if e.name().as_ref() == b"entry" {
                         // Clean up the definitions list.
                         if !self.cur_entry.definitions.is_empty()
                             && self.cur_entry.definitions.last().unwrap().trim().is_empty()
@@ -248,7 +248,7 @@ impl<R: BufRead> Iterator for Parser<R> {
                     }
                 }
                 Ok(Event::Text(e)) => {
-                    let text = std::str::from_utf8(e.escaped()).unwrap().into();
+                    let text = std::str::from_utf8(&*e).unwrap().into();
                     match self.cur_xml_elem {
                         Elem::Gloss => {
                             self.cur_entry
@@ -492,6 +492,7 @@ impl<R: BufRead> Iterator for Parser<R> {
                     }
                 }
                 Err(e) => {
+                    dbg!(&e);
                     panic!(
                         "Error at position {}: {:?}",
                         self.xml_parser.buffer_position(),
