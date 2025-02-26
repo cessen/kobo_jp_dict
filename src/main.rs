@@ -16,6 +16,7 @@ use furigana_gen::FuriganaGenerator;
 mod generic_dict;
 mod jmdict;
 mod kobo;
+mod stardict;
 mod yomichan;
 
 use generic_dict::LangMode;
@@ -71,10 +72,18 @@ fn main() -> io::Result<()> {
                 .long("generate_furigana")
                 .help("Auto-generate furigana on native Japanese definitions."),
         )
+        .arg(
+            clap::Arg::new("stardict_format")
+                .short('s')
+                .long("stardict_format")
+                .help("Generate a (zipped) StarDict dictionary instead of a Kobo dictionary."),
+        )
         .get_matches();
 
     // Output zip archive path.
     let output_filename = matches.value_of("OUTPUT").unwrap();
+
+    let do_stardict_format = matches.is_present("stardict_format");
 
     //----------------------------------------------------------------
     // Read in all the files.
@@ -230,14 +239,24 @@ fn main() -> io::Result<()> {
                 LangMode::English
             },
             use_katakana_pronunciation: matches.is_present("katakana_pronunciation"),
-            generate_inflection_keys: true,
+
+            // Not needed for StarDict on KOReader, which has build-in
+            // inflection handling.
+            generate_inflection_keys: !do_stardict_format,
+
+            add_separators: !do_stardict_format,
         },
     );
 
     //----------------------------------------------------------------
     // Write the new dictionary file.
-    println!("Writing dictionary to disk...");
-    kobo::write_dictionary(&entries, std::path::Path::new(output_filename))?;
+    if do_stardict_format {
+        println!("Writing StarDict dictionary to disk...");
+        stardict::write_dictionary(&entries, std::path::Path::new(output_filename))?;
+    } else {
+        println!("Writing Kobo dictionary to disk...");
+        kobo::write_dictionary(&entries, std::path::Path::new(output_filename))?;
+    }
 
     return Ok(());
 }

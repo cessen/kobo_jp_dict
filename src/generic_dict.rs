@@ -45,6 +45,10 @@ pub struct EntrySettings {
     /// Whether to include word conjugations in the list of keys to look up
     /// words with.
     pub generate_inflection_keys: bool,
+
+    /// Will add a horizontal bar at the top of each entry.  This is mainly for
+    /// Kobo, which displays all entries together in a continuous page.
+    pub add_separators: bool,
 }
 
 pub fn generate_entries(
@@ -59,7 +63,10 @@ pub fn generate_entries(
 
     // Kanji entries.
     for (kanji, items) in yomi_kanji_table.iter() {
-        let mut entry_text: String = "<hr/>".into();
+        let mut entry_text: String = "".into();
+        if entry_settings.add_separators {
+            entry_text.push_str("<hr/>");
+        }
         entry_text.push_str(&generate_kanji_entry_text(&items[0]));
 
         entries.push(Entry {
@@ -78,8 +85,11 @@ pub fn generate_entries(
                 .map(|a| a.as_slice())
                 .unwrap_or(&[]);
 
-            if pitch_accent.is_some() || !yomi_term_entries.is_empty() {
-                let mut entry_text: String = "<hr/>".into();
+            if !yomi_term_entries.is_empty() {
+                let mut entry_text: String = "".into();
+                if entry_settings.add_separators {
+                    entry_text.push_str("<hr/>");
+                }
 
                 // Add header and definition to the entry text.
                 entry_text.push_str(&generate_header_text(
@@ -102,7 +112,11 @@ pub fn generate_entries(
     // Name entries.
     for ((writing, _reading), items) in yomi_name_table.iter() {
         for item in items.iter() {
-            let mut entry_text: String = "<hr/>".into();
+            let mut entry_text: String = "".into();
+            if entry_settings.add_separators {
+                entry_text.push_str("<hr/>");
+            }
+
             entry_text.push_str(&generate_name_entry_text(entry_settings, item));
             entries.push(Entry {
                 keys: vec![(writing.clone(), std::u32::MAX)], // Always sort names last.
