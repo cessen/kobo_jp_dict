@@ -214,6 +214,7 @@ fn main() -> io::Result<()> {
 
     //----------------------------------------------------------------
     // Generate the new dictionary entries.
+    println!("Generating dictionary entries...");
     let entries = generic_dict::generate_entries(
         &yomi_term_table,
         &yomi_name_table,
