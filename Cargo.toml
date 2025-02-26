@@ -15,3 +15,4 @@ serde_json = "1.0"
 tempfile = "3"
 unicode_categories = "0.1"
 zip = { git = "https://github.com/cessen/zip", branch = "raw_filename" }
+furigana_gen = { git = "https://github.com/cessen/furigana_gen.git", branch = "main" }

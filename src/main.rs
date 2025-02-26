@@ -11,6 +11,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 
 use flate2::read::GzDecoder;
+use furigana_gen::FuriganaGenerator;
 
 mod generic_dict;
 mod jmdict;
@@ -63,6 +64,12 @@ fn main() -> io::Result<()> {
                 .short('j')
                 .long("use_japanese_terms")
                 .help("Use the Japanese terms for \"verb\", \"transitive\", etc. instead of English in entry headers."),
+        )
+        .arg(
+            clap::Arg::new("generate_furigana")
+                .short('f')
+                .long("generate_furigana")
+                .help("Auto-generate furigana on native Japanese definitions."),
         )
         .get_matches();
 
@@ -132,6 +139,13 @@ fn main() -> io::Result<()> {
 
     println!("Loading dictionaries...");
 
+    // For auto-adding furigana to native Japanese dictionary entries.
+    let furigana_generator = if matches.is_present("generate_furigana") {
+        Some(FuriganaGenerator::new(0, true, false))
+    } else {
+        None
+    };
+
     // Open and parse Yomichan dictionaries.
     let mut yomi_term_table: HashMap<(String, String), Vec<yomichan::TermEntry>> = HashMap::new(); // (Kanji, Kana)
     let mut yomi_name_table: HashMap<(String, String), Vec<yomichan::TermEntry>> = HashMap::new(); // (Kanji, Kana)
@@ -141,7 +155,7 @@ fn main() -> io::Result<()> {
             let mut entry_count = 0usize;
 
             let (mut word_entries, mut name_entries, mut kanji_entries) =
-                yomichan::parse(std::path::Path::new(path)).unwrap();
+                yomichan::parse(std::path::Path::new(path), furigana_generator.as_ref()).unwrap();
 
             // Put all of the word entries into the terms table.
             entry_count += word_entries.len();

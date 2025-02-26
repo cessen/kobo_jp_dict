@@ -6,6 +6,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
 
+use furigana_gen::FuriganaGenerator;
 use regex::Regex;
 use serde_json::Value;
 
@@ -94,8 +95,13 @@ pub struct KanjiEntry {
 
 //----------------------------------------------------------------
 
-pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Vec<KanjiEntry>)> // (words, names, kanji)
+pub fn parse(
+    path: &Path,
+    furigana_generator: Option<&FuriganaGenerator>,
+) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Vec<KanjiEntry>)> // (words, names, kanji)
 {
+    let mut furigen = furigana_generator.map(|fg| fg.new_session(false));
+
     let mut zip_in = zip::ZipArchive::new(BufReader::new(File::open(path)?))?;
 
     let mut text = String::new();
@@ -209,7 +215,7 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                                     if let Some(s) = d.as_str() {
                                         s.trim()
                                     } else {
-                                        // Ignore the complex structured defintions for now.
+                                        // Ignore the complex structured definitions for now.
                                         // TODO: handle this properly.
                                         ""
                                     }
@@ -241,7 +247,7 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
                         match entry.definitions {
                             Definition::List((_, mut list_from)) => {
                                 list_to.extend(list_from.drain(..).filter_map(|d| {
-                                    process_definition(&key.0, &key.1, dividers, d)
+                                    process_definition(&key.0, &key.1, dividers, d, &mut furigen)
                                 }))
                             }
                             Definition::Def(s) => list_to.push(Definition::Def(s)),
@@ -301,19 +307,20 @@ pub fn parse(path: &Path) -> std::io::Result<(Vec<TermEntry>, Vec<TermEntry>, Ve
 /// Recursively process definitions.
 ///
 /// The `dividers` regex's are for further splitting definitions into a
-/// deeper hierarchy.  The first reghex in the list is used for the top
+/// deeper hierarchy.  The first regex in the list is used for the top
 /// level split, the second for the second level, and so on.
 fn process_definition(
     writing: &str,
     reading: &str,
     dividers: &[Regex],
     def: Definition,
+    furigen: &mut Option<furigana_gen::Session>,
 ) -> Option<Definition> {
     match def {
         Definition::List((header, mut list)) => {
             let mut processed_list: Vec<_> = list
                 .drain(..)
-                .filter_map(|d| process_definition(writing, reading, dividers, d))
+                .filter_map(|d| process_definition(writing, reading, dividers, d, furigen))
                 .collect();
             if processed_list.is_empty() {
                 None
@@ -347,12 +354,34 @@ fn process_definition(
                 }
             };
 
-            Some(split_definition_text(&s, dividers))
+            // Guess if it's an English or Japanese definition.
+            let is_english = {
+                let mut ascii_count = 0;
+                let mut total_count = 0;
+                for c in s.chars() {
+                    total_count += 1;
+                    if c.is_ascii() {
+                        ascii_count += 1;
+                    }
+                }
+                (ascii_count as f64 / total_count as f64) > 0.5
+            };
+
+            // Add furigana if it's not English.
+            if is_english {
+                Some(split_definition_text(&s, dividers, &mut None))
+            } else {
+                Some(split_definition_text(&s, dividers, furigen))
+            }
         }
     }
 }
 
-fn split_definition_text(s: &str, dividers: &[Regex]) -> Definition {
+fn split_definition_text(
+    s: &str,
+    dividers: &[Regex],
+    furigen: &mut Option<furigana_gen::Session>,
+) -> Definition {
     // Try each divider in turn, to divide into sub-definitions.
     for divider in dividers.iter() {
         let match_count = divider.find_iter(&s).count();
@@ -360,7 +389,7 @@ fn split_definition_text(s: &str, dividers: &[Regex]) -> Definition {
             let mut list: Vec<Definition> = divider
                 .split(&s)
                 .filter(|t| !t.trim().is_empty())
-                .map(|t| split_definition_text(t.into(), dividers))
+                .map(|t| split_definition_text(t.into(), dividers, furigen))
                 .collect();
 
             if list.is_empty() {
@@ -380,7 +409,11 @@ fn split_definition_text(s: &str, dividers: &[Regex]) -> Definition {
     }
 
     // If none of the dividers matched, just return the text as-is.
-    Definition::Def(s.trim().replace("\n", "<br>"))
+    if let Some(ref mut furigen) = furigen {
+        Definition::Def(furigen.add_html_furigana(&s.trim().replace("\n", "<br>")))
+    } else {
+        Definition::Def(s.trim().replace("\n", "<br>"))
+    }
 }
 
 /// Converts a defintion(s) to html.
