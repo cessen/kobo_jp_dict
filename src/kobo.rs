@@ -8,14 +8,7 @@ use std::path::Path;
 use flate2::read::GzEncoder;
 use unicode_categories::UnicodeCategories;
 
-#[derive(Clone, Debug)]
-pub struct Entry {
-    // The integer here is a very rough priority ranking indicating
-    // the commonness of the word, specifically in that form.  A
-    // lower numerical value indicates a more common word.
-    pub keys: Vec<(String, u32)>,
-    pub definition: String,
-}
+use crate::generic_dict::Entry;
 
 pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Result<()> {
     // Sorted, de-duplicated list of keys.
