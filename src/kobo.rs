@@ -4,13 +4,21 @@ use std::collections::HashMap;
 use std::io::prelude::*;
 use std::io::BufWriter;
 use std::path::Path;
+use std::time::Duration;
 
 use flate2::read::GzEncoder;
 use unicode_categories::UnicodeCategories;
+use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::generic_dict::Entry;
+use crate::progress::{SPINNER_STYLE, PROGRESS_STYLE};
 
 pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Result<()> {
+    let spinner_sty = ProgressStyle::with_template(SPINNER_STYLE).unwrap();
+    let bar = ProgressBar::new_spinner().with_style(spinner_sty);
+    bar.enable_steady_tick(Duration::from_millis(100));
+    bar.set_prefix("    Generating words index file...");
+
     // Sorted, de-duplicated list of keys.
     let all_keys = {
         let max_priority = entries
@@ -146,9 +154,16 @@ pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Resul
         .start_file("words.original", zip::write::FileOptions::default())
         .unwrap();
     zip_out.write_all(words_original.as_bytes()).unwrap();
+    bar.finish_with_message("done");
 
     // Write all of the prefix entry files.
+    let progress_sty = ProgressStyle::with_template(PROGRESS_STYLE).unwrap();
+    let bar = ProgressBar::new(prefix_entries.len() as u64).with_style(progress_sty);
+    bar.set_prefix("    Writing files...");
     for (prefix, prefix_entry_list) in prefix_entries.iter() {
+        let filename = format!("{}.html", prefix);
+        bar.set_message(format!("file: {filename}"));
+        bar.inc(1);
         // Generate the html.
         let mut html = String::new();
         html.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?><html>");
@@ -174,6 +189,7 @@ pub fn write_dictionary(entries: &[Entry], output_path: &Path) -> std::io::Resul
             .unwrap();
         zip_out.write_all(&gzhtml).unwrap();
     }
+    bar.finish();
 
     zip_out.finish().unwrap();
 

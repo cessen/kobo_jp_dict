@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::time::Duration;
 
 use flate2::read::GzDecoder;
 use furigana_gen::FuriganaGenerator;
@@ -18,9 +19,13 @@ mod jmdict;
 mod kobo;
 mod stardict;
 mod yomichan;
+mod progress;
 
 use generic_dict::LangMode;
 use jmdict::WordEntry;
+use indicatif::{ProgressBar, ProgressStyle};
+
+use crate::progress::SPINNER_STYLE;
 
 fn main() -> io::Result<()> {
     let matches = clap::Command::new("Kobo Japanese Dictionary Builder")
@@ -88,7 +93,11 @@ fn main() -> io::Result<()> {
     //----------------------------------------------------------------
     // Read in all the files.
 
-    println!("Extracting bundled data...");
+    let sty = ProgressStyle::with_template(SPINNER_STYLE).unwrap();
+
+    let bar = ProgressBar::new_spinner().with_style(sty.clone());
+    bar.enable_steady_tick(Duration::from_millis(100));
+    bar.set_prefix("Extracting bundled data...");
 
     // Parse the bundled JMDict XML data.
     const JM_DATA: &[u8] = include_bytes!("../dictionaries/JMdict_e.xml.gz");
@@ -105,9 +114,11 @@ fn main() -> io::Result<()> {
 
             let e = jm_table.entry((writing, reading)).or_insert(Vec::new());
             e.push(entry);
+            bar.set_message(format!("{} entries", jm_table.len()));
         }
         jm_table
     };
+    bar.finish_with_message("done");
     println!("    Metadata entries: {}", jm_table.len());
 
     // Open and parse the pitch accent data.
@@ -163,8 +174,14 @@ fn main() -> io::Result<()> {
         for path in paths {
             let mut entry_count = 0usize;
 
+            let bar = ProgressBar::new_spinner().with_style(sty.clone());
+            bar.enable_steady_tick(Duration::from_millis(100));
+            bar.set_prefix(format!("    Parsing {}...", path));
+
             let (mut word_entries, mut name_entries, mut kanji_entries) =
                 yomichan::parse(std::path::Path::new(path), furigana_generator.as_ref()).unwrap();
+
+            bar.finish();
 
             // Put all of the word entries into the terms table.
             entry_count += word_entries.len();
